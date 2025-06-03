@@ -84,15 +84,15 @@ const refreshTokenMiddleware: ResponseMiddleware = async (response: Response): P
 
 // 请求重试中间件
 const retryMiddleware: ResponseMiddleware = async (response: Response): Promise<Response> => {
-  const { config = {}, statusCode } = response
+  const { config, statusCode } = response
   
-  if (!config.retryCount || !RETRY_CONFIG.retryableStatus.includes(statusCode)) {
+  if (!config?.retryCount || !RETRY_CONFIG.retryableStatus.includes(statusCode)) {
     return response
   }
 
-  config.retryCount--
+  const newConfig = { ...config, retryCount: config.retryCount - 1 }
   await new Promise(resolve => setTimeout(resolve, RETRY_CONFIG.retryDelay))
-  return uni.request(config)
+  return uni.request(newConfig)
 }
 
 // 错误处理中间件
