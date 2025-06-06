@@ -57,6 +57,18 @@ type ControllerConfig = {
 };
 
 /**
+ * 任务输入类型定义
+ */
+type TaskInput<T> = {
+  priority: number;
+  execute: (updateProgress: (progress: number) => void) => Promise<T>;
+  timeout?: number;
+  maxRetries?: number;
+  dependencies?: string[];
+  onProgress?: (progress: number) => void;
+};
+
+/**
  * 生成唯一的任务ID
  * @returns 随机生成的唯一任务ID
  */
@@ -283,15 +295,16 @@ export const createTaskController = (config: Partial<ControllerConfig>) => {
      * @param task 任务配置
      * @returns 任务ID
      */
-    addTask: async <T>(task: Omit<Task<T>, 'status' | 'id' | 'retries' | 'progress'>): Promise<string> => {
+    addTask: async <T>(task: TaskInput<T>): Promise<string> => {
       const taskId = createTaskId();
       const newTask: Task<T> = {
         ...task,
         id: taskId,
         status: 'pending',
         retries: 0,
+        maxRetries: task.maxRetries ?? 0,
         progress: 0,
-        dependencies: task.dependencies || []
+        dependencies: task.dependencies ?? []
       };
 
       state = {
