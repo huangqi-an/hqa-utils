@@ -1,98 +1,135 @@
 /**
  * 并发任务控制器 - 函数式实现
- * 提供任务队列管理、并发控制、优先级调度等功能
+ * 
+ * 特点：
+ * 1. 纯函数设计：使用不可变状态和函数组合
+ * 2. 类型安全：完整的 TypeScript 类型定义
+ * 3. 并发控制：支持最大并发数限制
+ * 4. 任务管理：支持优先级、依赖、超时、重试等特性
+ * 5. 状态追踪：完整的任务生命周期管理
+ * 
+ * 使用示例：
+ * ```typescript
+ * const controller = createTaskController({
+ *   maxConcurrent: 2,
+ *   autoCleanup: true
+ * });
+ * 
+ * const taskId = await controller.addTask({
+ *   priority: 1,
+ *   execute: async (updateProgress) => {
+ *     updateProgress(50);
+ *     return '结果';
+ *   }
+ * });
+ * ```
  */
 
 /**
  * 任务状态类型定义
- * - pending: 等待执行
- * - running: 正在执行
- * - completed: 执行完成
- * - failed: 执行失败
- * - paused: 暂停执行
+ * 用于追踪任务的生命周期
+ * - pending: 等待执行，任务已创建但尚未开始执行
+ * - running: 正在执行，任务当前正在运行中
+ * - completed: 执行完成，任务已成功完成
+ * - failed: 执行失败，任务执行过程中发生错误
+ * - paused: 暂停执行，任务被手动暂停
  */
 type TaskStatus = 'pending' | 'running' | 'completed' | 'failed' | 'paused';
 
 /**
  * 任务类型定义
- * @template T 任务执行结果的类型
+ * 描述任务的所有属性和行为
+ * 
+ * @template T 任务执行结果的类型，默认为 any
  */
 type Task<T = any> = {
-  id: string;                    // 任务唯一标识
-  priority: number;              // 任务优先级，数字越大优先级越高
-  execute: (updateProgress: (progress: number) => void) => Promise<T>;  // 任务执行函数
-  status: TaskStatus;            // 当前任务状态
-  result?: T;                    // 任务执行结果
-  error?: Error;                 // 任务执行错误
-  timeout?: number;              // 任务超时时间（毫秒）
-  retries: number;               // 当前重试次数
-  maxRetries: number;            // 最大重试次数
-  progress: number;              // 任务进度（0-100）
-  dependencies: string[];        // 任务依赖的其他任务ID列表
-  onProgress?: (progress: number) => void;  // 进度更新回调函数
-};
-
-/**
- * 任务控制器状态
- * 维护所有任务和运行状态
- */
-type ControllerState = {
-  tasks: Map<string, Task>;      // 所有任务映射表
-  runningTasks: Set<string>;     // 正在运行的任务ID集合
-  isPaused: boolean;             // 控制器是否暂停
-  cleanupTimer?: NodeJS.Timeout; // 自动清理定时器
-};
-
-/**
- * 任务控制器配置选项
- */
-type ControllerConfig = {
-  maxConcurrent: number;         // 最大并发任务数
-  autoCleanup: boolean;          // 是否自动清理已完成任务
-  cleanupInterval: number;       // 清理间隔（毫秒）
-  onTaskComplete: (task: Task) => void;           // 任务完成回调
-  onTaskError: (task: Task, error: Error) => void; // 任务错误回调
-  onTaskTimeout: (task: Task) => void;            // 任务超时回调
-  onTaskProgress: (task: Task, progress: number) => void; // 任务进度回调
+  id: string;                    // 任务唯一标识，用于任务追踪和管理
+  priority: number;              // 任务优先级，数字越大优先级越高，用于任务调度
+  execute: (updateProgress: (progress: number) => void) => Promise<T>;  // 任务执行函数，接收进度更新回调
+  status: TaskStatus;            // 当前任务状态，反映任务的生命周期阶段
+  result?: T;                    // 任务执行结果，仅在任务完成时有效
+  error?: Error;                 // 任务执行错误，仅在任务失败时有效
+  timeout?: number;              // 任务超时时间（毫秒），超过此时间任务将被终止
+  retries: number;               // 当前重试次数，用于追踪任务重试状态
+  maxRetries: number;            // 最大重试次数，超过此次数任务将被标记为失败
+  progress: number;              // 任务进度（0-100），反映任务完成程度
+  dependencies: string[];        // 任务依赖的其他任务ID列表，确保任务按正确顺序执行
+  onProgress?: (progress: number) => void;  // 进度更新回调函数，用于通知任务进度变化
 };
 
 /**
  * 任务输入类型定义
+ * 用于创建新任务时的参数类型
+ * 只包含创建任务时必需的属性，其他属性由控制器自动设置
+ * 
+ * @template T 任务执行结果的类型
  */
 type TaskInput<T> = {
-  priority: number;
-  execute: (updateProgress: (progress: number) => void) => Promise<T>;
-  timeout?: number;
-  maxRetries?: number;
-  dependencies?: string[];
-  onProgress?: (progress: number) => void;
+  priority: number;              // 任务优先级
+  execute: (updateProgress: (progress: number) => void) => Promise<T>;  // 任务执行函数
+  timeout?: number;              // 可选的超时时间
+  maxRetries?: number;           // 可选的最大重试次数
+  dependencies?: string[];       // 可选的任务依赖列表
+  onProgress?: (progress: number) => void;  // 可选的进度回调函数
+};
+
+/**
+ * 任务控制器状态
+ * 维护控制器的内部状态，包括任务列表和运行状态
+ * 使用不可变数据结构，确保状态更新的可预测性
+ */
+type ControllerState = {
+  tasks: Map<string, Task>;      // 所有任务的映射表，key 为任务 ID
+  runningTasks: Set<string>;     // 正在运行的任务 ID 集合，用于并发控制
+  isPaused: boolean;             // 控制器暂停状态标志
+  cleanupTimer?: NodeJS.Timeout; // 自动清理定时器，用于定期清理已完成任务
+};
+
+/**
+ * 任务控制器配置选项
+ * 定义控制器的行为和回调函数
+ */
+type ControllerConfig = {
+  maxConcurrent: number;         // 最大并发任务数，控制同时运行的任务数量
+  autoCleanup: boolean;          // 是否自动清理已完成任务，防止内存泄漏
+  cleanupInterval: number;       // 清理间隔（毫秒），控制自动清理的频率
+  onTaskComplete: (task: Task) => void;           // 任务完成回调，用于通知任务完成
+  onTaskError: (task: Task, error: Error) => void; // 任务错误回调，用于处理任务失败
+  onTaskTimeout: (task: Task) => void;            // 任务超时回调，用于处理任务超时
+  onTaskProgress: (task: Task, progress: number) => void; // 任务进度回调，用于更新任务进度
 };
 
 /**
  * 生成唯一的任务ID
+ * 使用随机字符串作为任务标识符
+ * 
  * @returns 随机生成的唯一任务ID
  */
 const createTaskId = (): string => Math.random().toString(36).substring(2, 15);
 
 /**
  * 创建默认配置
+ * 为未提供的配置项设置合理的默认值
+ * 
  * @param config 用户提供的部分配置
- * @returns 完整的配置对象
+ * @returns 完整的配置对象，包含所有必要的配置项
  */
 const createDefaultConfig = (config: Partial<ControllerConfig>): ControllerConfig => ({
-  maxConcurrent: 3,              // 默认最大并发数
+  maxConcurrent: 3,              // 默认最大并发数为3
   autoCleanup: true,             // 默认启用自动清理
-  cleanupInterval: 60000,        // 默认清理间隔1分钟
-  onTaskComplete: () => {},      // 默认空回调
+  cleanupInterval: 60000,        // 默认每分钟清理一次
+  onTaskComplete: () => {},      // 默认空回调函数
   onTaskError: () => {},
   onTaskTimeout: () => {},
   onTaskProgress: () => {},
-  ...config                      // 合并用户配置
+  ...config                      // 合并用户提供的配置
 });
 
 /**
- * 创建控制器初始状态
- * @returns 初始化的控制器状态
+ * 创建初始状态
+ * 初始化控制器的内部状态
+ * 
+ * @returns 初始化的控制器状态对象
  */
 const createInitialState = (): ControllerState => ({
   tasks: new Map(),
@@ -102,6 +139,8 @@ const createInitialState = (): ControllerState => ({
 
 /**
  * 更新任务状态
+ * 以不可变的方式更新任务属性
+ * 
  * @param state 当前控制器状态
  * @param taskId 要更新的任务ID
  * @param updates 要更新的任务属性
@@ -120,6 +159,8 @@ const updateTaskStatus = (state: ControllerState, taskId: string, updates: Parti
 
 /**
  * 更新任务进度
+ * 更新任务进度并触发进度回调
+ * 
  * @param state 当前控制器状态
  * @param taskId 任务ID
  * @param progress 新的进度值（0-100）
@@ -138,7 +179,8 @@ const updateTaskProgress = (state: ControllerState, taskId: string, progress: nu
 
 /**
  * 获取下一个待执行的任务
- * 根据优先级排序，返回优先级最高的待执行任务
+ * 根据优先级和依赖关系选择下一个要执行的任务
+ * 
  * @param state 当前控制器状态
  * @returns 下一个要执行的任务，如果没有则返回undefined
  */
@@ -150,6 +192,8 @@ const getNextTask = (state: ControllerState): Task | undefined => {
 
 /**
  * 检查任务的所有依赖是否都已完成
+ * 确保任务按正确的顺序执行
+ * 
  * @param state 当前控制器状态
  * @param task 要检查的任务
  * @returns 如果所有依赖都已完成返回true，否则返回false
@@ -164,12 +208,13 @@ const areDependenciesCompleted = (state: ControllerState, task: Task): boolean =
 /**
  * 创建任务执行器
  * 处理任务的执行、超时、重试等逻辑
+ * 
  * @param config 控制器配置
  * @returns 任务执行函数
  */
 const createTaskExecutor = (config: ControllerConfig) => {
   return async (state: ControllerState, task: Task): Promise<ControllerState> => {
-    // 创建进度更新函数
+    // 创建进度更新函数，用于任务执行过程中更新进度
     const updateProgress = (progress: number) => {
       const newState = updateTaskProgress(state, task.id, progress);
       config.onTaskProgress(task, progress);
@@ -190,7 +235,7 @@ const createTaskExecutor = (config: ControllerConfig) => {
         ...(timeoutPromise ? [timeoutPromise] : [])
       ]);
 
-      // 任务成功完成
+      // 任务成功完成，更新状态
       return updateTaskStatus(state, task.id, {
         status: 'completed',
         result,
@@ -227,8 +272,10 @@ const createTaskExecutor = (config: ControllerConfig) => {
 
 /**
  * 创建并发任务控制器
+ * 返回一个包含任务管理方法的控制器对象
+ * 
  * @param config 控制器配置选项
- * @returns 任务控制器实例
+ * @returns 任务控制器实例，提供任务管理接口
  */
 export const createTaskController = (config: Partial<ControllerConfig>) => {
   // 初始化配置和状态
@@ -267,7 +314,7 @@ export const createTaskController = (config: Partial<ControllerConfig>) => {
 
   /**
    * 启动自动清理机制
-   * 定期清理已完成和失败的任务
+   * 定期清理已完成和失败的任务，防止内存泄漏
    */
   const startCleanup = () => {
     if (finalConfig.autoCleanup) {
@@ -292,8 +339,22 @@ export const createTaskController = (config: Partial<ControllerConfig>) => {
   return {
     /**
      * 添加新任务
+     * 创建并启动一个新任务
+     * 
      * @param task 任务配置
-     * @returns 任务ID
+     * @returns 任务ID，用于后续任务管理
+     * 
+     * @example
+     * ```typescript
+     * const taskId = await controller.addTask({
+     *   priority: 1,
+     *   execute: async (updateProgress) => {
+     *     // 执行任务逻辑
+     *     updateProgress(50);
+     *     return '结果';
+     *   }
+     * });
+     * ```
      */
     addTask: async <T>(task: TaskInput<T>): Promise<string> => {
       const taskId = createTaskId();
@@ -321,6 +382,7 @@ export const createTaskController = (config: Partial<ControllerConfig>) => {
 
     /**
      * 暂停所有任务
+     * 将控制器设置为暂停状态，停止处理新任务
      */
     pause: () => {
       state = { ...state, isPaused: true };
@@ -328,6 +390,7 @@ export const createTaskController = (config: Partial<ControllerConfig>) => {
 
     /**
      * 恢复所有任务
+     * 将控制器从暂停状态恢复，继续处理任务
      */
     resume: () => {
       state = { ...state, isPaused: false };
@@ -336,8 +399,10 @@ export const createTaskController = (config: Partial<ControllerConfig>) => {
 
     /**
      * 暂停指定任务
+     * 暂停单个任务的执行
+     * 
      * @param taskId 任务ID
-     * @returns 是否成功暂停
+     * @returns 是否成功暂停任务
      */
     pauseTask: (taskId: string): boolean => {
       const task = state.tasks.get(taskId);
@@ -352,8 +417,10 @@ export const createTaskController = (config: Partial<ControllerConfig>) => {
 
     /**
      * 恢复指定任务
+     * 恢复单个暂停的任务
+     * 
      * @param taskId 任务ID
-     * @returns 是否成功恢复
+     * @returns 是否成功恢复任务
      */
     resumeTask: (taskId: string): boolean => {
       const task = state.tasks.get(taskId);
@@ -367,8 +434,10 @@ export const createTaskController = (config: Partial<ControllerConfig>) => {
 
     /**
      * 获取任务状态
+     * 查询指定任务的当前状态
+     * 
      * @param taskId 任务ID
-     * @returns 任务状态信息
+     * @returns 任务状态信息，如果任务不存在则返回undefined
      */
     getTaskStatus: (taskId: string): Task | undefined => {
       return state.tasks.get(taskId);
@@ -376,7 +445,9 @@ export const createTaskController = (config: Partial<ControllerConfig>) => {
 
     /**
      * 获取所有任务
-     * @returns 所有任务列表
+     * 返回所有任务的列表
+     * 
+     * @returns 所有任务的数组
      */
     getAllTasks: (): Task[] => {
       return Array.from(state.tasks.values());
@@ -384,7 +455,9 @@ export const createTaskController = (config: Partial<ControllerConfig>) => {
 
     /**
      * 获取正在运行的任务
-     * @returns 运行中的任务列表
+     * 返回当前正在执行的任务列表
+     * 
+     * @returns 运行中任务的数组
      */
     getRunningTasks: (): Task[] => {
       return Array.from(state.runningTasks)
@@ -394,7 +467,9 @@ export const createTaskController = (config: Partial<ControllerConfig>) => {
 
     /**
      * 获取等待中的任务
-     * @returns 等待中的任务列表
+     * 返回所有等待执行的任务列表
+     * 
+     * @returns 等待中任务的数组
      */
     getPendingTasks: (): Task[] => {
       return Array.from(state.tasks.values())
@@ -403,8 +478,10 @@ export const createTaskController = (config: Partial<ControllerConfig>) => {
 
     /**
      * 取消任务
+     * 取消一个等待中的任务
+     * 
      * @param taskId 任务ID
-     * @returns 是否成功取消
+     * @returns 是否成功取消任务
      */
     cancelTask: (taskId: string): boolean => {
       const task = state.tasks.get(taskId);
@@ -419,6 +496,7 @@ export const createTaskController = (config: Partial<ControllerConfig>) => {
 
     /**
      * 清空所有任务
+     * 移除所有任务，重置控制器状态
      */
     clear: () => {
       state = createInitialState();
@@ -427,6 +505,7 @@ export const createTaskController = (config: Partial<ControllerConfig>) => {
     /**
      * 释放控制器资源
      * 清理定时器并重置状态
+     * 在不再需要控制器时调用此方法
      */
     dispose: () => {
       if (state.cleanupTimer) {
