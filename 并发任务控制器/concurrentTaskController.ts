@@ -23,13 +23,13 @@ interface Task<T = any> {
   /** 任务超时时间（毫秒） */
   timeout?: number;
   /** 当前重试次数 */
-  retries?: number;
+  retries: number;
   /** 最大重试次数 */
-  maxRetries?: number;
+  maxRetries: number;
   /** 任务进度（0-100） */
-  progress?: number;
+  progress: number;
   /** 依赖的其他任务ID列表 */
-  dependencies?: string[];
+  dependencies: string[];
   /** 进度更新回调函数 */
   onProgress?: (progress: number) => void;
 }
@@ -104,7 +104,6 @@ export class ConcurrentTaskController {
    * 清理已完成或失败的任务
    */
   private cleanupCompletedTasks(): void {
-    const now = Date.now();
     for (const [id, task] of this.tasks.entries()) {
       if (task.status === 'completed' || task.status === 'failed') {
         this.tasks.delete(id);
@@ -117,15 +116,23 @@ export class ConcurrentTaskController {
    * @param task 任务配置
    * @returns 任务ID
    */
-  async addTask<T>(task: Omit<Task<T>, 'status' | 'id'>): Promise<string> {
+  async addTask<T>(task: {
+    priority: number;
+    execute: (controller: ConcurrentTaskController, taskId: string) => Promise<T>;
+    timeout?: number;
+    maxRetries?: number;
+    dependencies?: string[];
+    onProgress?: (progress: number) => void;
+  }): Promise<string> {
     const taskId = Math.random().toString(36).substring(2, 15);
     const newTask: Task<T> = {
       ...task,
       id: taskId,
       status: 'pending',
       retries: 0,
-      maxRetries: task.maxRetries || 0,
+      maxRetries: task.maxRetries ?? 0,
       progress: 0,
+      dependencies: task.dependencies ?? []
     };
     
     this.tasks.set(taskId, newTask);
@@ -150,7 +157,7 @@ export class ConcurrentTaskController {
     }
 
     // 检查依赖任务是否完成
-    if (nextTask.dependencies?.length) {
+    if (nextTask.dependencies.length) {
       const dependenciesCompleted = nextTask.dependencies.every(depId => {
         const depTask = this.tasks.get(depId);
         return depTask?.status === 'completed';
@@ -183,8 +190,8 @@ export class ConcurrentTaskController {
       this.options.onTaskComplete(nextTask);
     } catch (error) {
       // 处理任务失败，支持重试
-      if (nextTask.retries! < nextTask.maxRetries!) {
-        nextTask.retries!++;
+      if (nextTask.retries < nextTask.maxRetries) {
+        nextTask.retries++;
         nextTask.status = 'pending';
         this.runningTasks.delete(nextTask.id);
         this.processNextTask();
