@@ -63,6 +63,8 @@ export class ConcurrentTaskController {
   private tasks: Map<string, Task> = new Map();
   /** 当前正在运行的任务ID集合 */
   private runningTasks: Set<string> = new Set();
+  /** 依赖任务队列，存储等待依赖完成的任务ID */
+  private dependencyQueue: string[] = [];
   /** 控制器配置选项 */
   private options: Required<TaskControllerOptions>;
   /** 自动清理定时器 */
@@ -112,34 +114,70 @@ export class ConcurrentTaskController {
   }
 
   /**
-   * 添加新任务到控制器
-   * @param task 任务配置
-   * @returns 任务ID
+   * 获取下一个要执行的任务
+   * 根据优先级排序，返回优先级最高的待执行任务
+   * 优先处理依赖任务队列中的任务
    */
-  async addTask<T>(task: {
-    priority: number;
-    execute: (controller: ConcurrentTaskController, taskId: string) => Promise<T>;
-    timeout?: number;
-    maxRetries?: number;
-    dependencies?: string[];
-    onProgress?: (progress: number) => void;
-  }): Promise<string> {
-    const taskId = Math.random().toString(36).substring(2, 15);
-    const newTask: Task<T> = {
-      ...task,
-      id: taskId,
-      status: 'pending',
-      retries: 0,
-      maxRetries: task.maxRetries ?? 0,
-      progress: 0,
-      dependencies: task.dependencies ?? []
-    };
-    
-    this.tasks.set(taskId, newTask);
-    if (!this.isPaused) {
-      this.processNextTask();
+  private getNextTask(): Task | undefined {
+    // 首先检查依赖任务队列
+    for (const taskId of this.dependencyQueue) {
+      const task = this.tasks.get(taskId);
+      if (task && task.status === 'pending' && this.areDependenciesCompleted(task)) {
+        return task;
+      }
     }
-    return taskId;
+
+    // 然后检查其他待执行任务
+    return Array.from(this.tasks.values())
+      .filter(task => task.status === 'pending' && !this.dependencyQueue.includes(task.id))
+      .sort((a, b) => b.priority - a.priority)[0];
+  }
+
+  /**
+   * 检查任务的所有依赖是否都已完成
+   * @param task 要检查的任务
+   * @returns 如果所有依赖都已完成返回true，否则返回false
+   */
+  private areDependenciesCompleted(task: Task): boolean {
+    return task.dependencies?.every(depId => {
+      const depTask = this.tasks.get(depId);
+      return depTask?.status === 'completed';
+    }) ?? true;
+  }
+
+  /**
+   * 将任务添加到依赖队列
+   * @param taskId 任务ID
+   */
+  private addToDependencyQueue(taskId: string): void {
+    if (!this.dependencyQueue.includes(taskId)) {
+      this.dependencyQueue.push(taskId);
+    }
+  }
+
+  /**
+   * 从依赖队列中移除任务
+   * @param taskId 任务ID
+   */
+  private removeFromDependencyQueue(taskId: string): void {
+    this.dependencyQueue = this.dependencyQueue.filter(id => id !== taskId);
+  }
+
+  /**
+   * 处理依赖任务完成后的调度
+   * @param completedTaskId 刚完成的任务ID
+   */
+  private handleDependencyCompletion(completedTaskId: string): void {
+    // 检查依赖队列中是否有任务可以开始执行
+    const readyTasks = this.dependencyQueue.filter(taskId => {
+      const task = this.tasks.get(taskId);
+      return task && task.status === 'pending' && this.areDependenciesCompleted(task);
+    });
+
+    // 从依赖队列中移除可以执行的任务
+    for (const taskId of readyTasks) {
+      this.removeFromDependencyQueue(taskId);
+    }
   }
 
   /**
@@ -157,16 +195,14 @@ export class ConcurrentTaskController {
     }
 
     // 检查依赖任务是否完成
-    if (nextTask.dependencies.length) {
-      const dependenciesCompleted = nextTask.dependencies.every(depId => {
-        const depTask = this.tasks.get(depId);
-        return depTask?.status === 'completed';
-      });
-
-      if (!dependenciesCompleted) {
-        return;
-      }
+    if (nextTask.dependencies?.length && !this.areDependenciesCompleted(nextTask)) {
+      // 如果依赖未完成，将任务加入依赖队列
+      this.addToDependencyQueue(nextTask.id);
+      return;
     }
+
+    // 从依赖队列中移除任务（如果存在）
+    this.removeFromDependencyQueue(nextTask.id);
 
     this.runningTasks.add(nextTask.id);
     nextTask.status = 'running';
@@ -188,6 +224,9 @@ export class ConcurrentTaskController {
       nextTask.status = 'completed';
       nextTask.result = result;
       this.options.onTaskComplete(nextTask);
+      
+      // 处理依赖完成后的调度
+      this.handleDependencyCompletion(nextTask.id);
     } catch (error) {
       // 处理任务失败，支持重试
       if (nextTask.retries < nextTask.maxRetries) {
@@ -214,13 +253,41 @@ export class ConcurrentTaskController {
   }
 
   /**
-   * 获取下一个要执行的任务
-   * 根据优先级排序，返回优先级最高的待执行任务
+   * 添加新任务到控制器
+   * @param task 任务配置
+   * @returns 任务ID
    */
-  private getNextTask(): Task | undefined {
-    return Array.from(this.tasks.values())
-      .filter(task => task.status === 'pending')
-      .sort((a, b) => b.priority - a.priority)[0];
+  async addTask<T>(task: {
+    priority: number;
+    execute: (controller: ConcurrentTaskController, taskId: string) => Promise<T>;
+    timeout?: number;
+    maxRetries?: number;
+    dependencies?: string[];
+    onProgress?: (progress: number) => void;
+  }): Promise<string> {
+    const taskId = Math.random().toString(36).substring(2, 15);
+    const newTask: Task<T> = {
+      ...task,
+      id: taskId,
+      status: 'pending',
+      retries: 0,
+      maxRetries: task.maxRetries ?? 0,
+      progress: 0,
+      dependencies: task.dependencies ?? []
+    };
+    
+    this.tasks.set(taskId, newTask);
+    
+    // 检查任务是否可以立即执行
+    if (newTask.dependencies.length && !this.areDependenciesCompleted(newTask)) {
+      // 如果有未完成的依赖，加入依赖队列
+      this.addToDependencyQueue(taskId);
+    }
+    
+    if (!this.isPaused) {
+      this.processNextTask();
+    }
+    return taskId;
   }
 
   /**
