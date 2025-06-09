@@ -83,6 +83,7 @@ type ControllerState = {
   runningTasks: Set<string>;     // 正在运行的任务 ID 集合，用于并发控制
   isPaused: boolean;             // 控制器暂停状态标志
   cleanupTimer?: NodeJS.Timeout; // 自动清理定时器，用于定期清理已完成任务
+  dependencyQueue: string[];     // 依赖任务队列，存储等待依赖完成的任务ID
 };
 
 /**
@@ -134,7 +135,8 @@ const createDefaultConfig = (config: Partial<ControllerConfig>): ControllerConfi
 const createInitialState = (): ControllerState => ({
   tasks: new Map(),
   runningTasks: new Set(),
-  isPaused: false
+  isPaused: false,
+  dependencyQueue: []
 });
 
 /**
@@ -180,14 +182,57 @@ const updateTaskProgress = (state: ControllerState, taskId: string, progress: nu
 /**
  * 获取下一个待执行的任务
  * 根据优先级和依赖关系选择下一个要执行的任务
+ * 优先处理依赖任务队列中的任务
  * 
  * @param state 当前控制器状态
  * @returns 下一个要执行的任务，如果没有则返回undefined
  */
 const getNextTask = (state: ControllerState): Task | undefined => {
+  // 首先检查依赖任务队列
+  for (const taskId of state.dependencyQueue) {
+    const task = state.tasks.get(taskId);
+    if (task && task.status === 'pending' && areDependenciesCompleted(state, task)) {
+      return task;
+    }
+  }
+
+  // 然后检查其他待执行任务
   return Array.from(state.tasks.values())
-    .filter(task => task.status === 'pending')
+    .filter(task => task.status === 'pending' && !state.dependencyQueue.includes(task.id))
     .sort((a, b) => b.priority - a.priority)[0];
+};
+
+/**
+ * 将任务添加到依赖队列
+ * 当任务有未完成的依赖时，将其加入依赖队列
+ * 
+ * @param state 当前控制器状态
+ * @param taskId 任务ID
+ * @returns 更新后的控制器状态
+ */
+const addToDependencyQueue = (state: ControllerState, taskId: string): ControllerState => {
+  if (!state.dependencyQueue.includes(taskId)) {
+    return {
+      ...state,
+      dependencyQueue: [...state.dependencyQueue, taskId]
+    };
+  }
+  return state;
+};
+
+/**
+ * 从依赖队列中移除任务
+ * 当任务开始执行或依赖完成时，从依赖队列中移除
+ * 
+ * @param state 当前控制器状态
+ * @param taskId 任务ID
+ * @returns 更新后的控制器状态
+ */
+const removeFromDependencyQueue = (state: ControllerState, taskId: string): ControllerState => {
+  return {
+    ...state,
+    dependencyQueue: state.dependencyQueue.filter(id => id !== taskId)
+  };
 };
 
 /**
@@ -203,6 +248,30 @@ const areDependenciesCompleted = (state: ControllerState, task: Task): boolean =
     const depTask = state.tasks.get(depId);
     return depTask?.status === 'completed';
   });
+};
+
+/**
+ * 处理依赖任务完成后的调度
+ * 当依赖任务完成时，检查是否有等待的任务可以开始执行
+ * 
+ * @param state 当前控制器状态
+ * @param completedTaskId 刚完成的任务ID
+ * @returns 更新后的控制器状态
+ */
+const handleDependencyCompletion = (state: ControllerState, completedTaskId: string): ControllerState => {
+  // 检查依赖队列中是否有任务可以开始执行
+  const readyTasks = state.dependencyQueue.filter(taskId => {
+    const task = state.tasks.get(taskId);
+    return task && task.status === 'pending' && areDependenciesCompleted(state, task);
+  });
+
+  // 从依赖队列中移除可以执行的任务
+  let newState = state;
+  for (const taskId of readyTasks) {
+    newState = removeFromDependencyQueue(newState, taskId);
+  }
+
+  return newState;
 };
 
 /**
@@ -286,6 +355,7 @@ export const createTaskController = (config: Partial<ControllerConfig>) => {
   /**
    * 处理下一个待执行的任务
    * 如果当前运行任务数未达到最大并发数，则启动新任务
+   * 优先处理依赖任务队列中的任务
    */
   const processNextTask = async (): Promise<void> => {
     if (state.isPaused || state.runningTasks.size >= finalConfig.maxConcurrent) {
@@ -293,9 +363,19 @@ export const createTaskController = (config: Partial<ControllerConfig>) => {
     }
 
     const nextTask = getNextTask(state);
-    if (!nextTask || !areDependenciesCompleted(state, nextTask)) {
+    if (!nextTask) {
       return;
     }
+
+    // 检查依赖任务是否完成
+    if (nextTask.dependencies.length && !areDependenciesCompleted(state, nextTask)) {
+      // 如果依赖未完成，将任务加入依赖队列
+      state = addToDependencyQueue(state, nextTask.id);
+      return;
+    }
+
+    // 从依赖队列中移除任务（如果存在）
+    state = removeFromDependencyQueue(state, nextTask.id);
 
     // 更新任务状态并执行
     state = updateTaskStatus(state, nextTask.id, { status: 'running' });
@@ -304,6 +384,9 @@ export const createTaskController = (config: Partial<ControllerConfig>) => {
     try {
       state = await executeTask(state, nextTask);
       finalConfig.onTaskComplete(nextTask);
+      
+      // 处理依赖完成后的调度
+      state = handleDependencyCompletion(state, nextTask.id);
     } finally {
       state.runningTasks.delete(nextTask.id);
       if (!state.isPaused) {
@@ -372,6 +455,12 @@ export const createTaskController = (config: Partial<ControllerConfig>) => {
         ...state,
         tasks: new Map(state.tasks).set(taskId, newTask)
       };
+
+      // 检查任务是否可以立即执行
+      if (newTask.dependencies.length && !areDependenciesCompleted(state, newTask)) {
+        // 如果有未完成的依赖，加入依赖队列
+        state = addToDependencyQueue(state, taskId);
+      }
 
       if (!state.isPaused) {
         processNextTask();
