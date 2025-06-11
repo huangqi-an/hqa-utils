@@ -1,0 +1,274 @@
+import { ConcurrentTaskController } from '../utils/taskController/concurrentTaskController';
+
+describe('ConcurrentTaskController', () => {
+  let controller: ConcurrentTaskController;
+  const mockExecute = jest.fn();
+  const mockOnComplete = jest.fn();
+  const mockOnError = jest.fn();
+  const mockOnProgress = jest.fn();
+
+  beforeEach(() => {
+    // 重置所有mock函数
+    jest.clearAllMocks();
+    
+    // 创建新的控制器实例
+    controller = new ConcurrentTaskController({
+      maxConcurrent: 2,
+      onTaskComplete: mockOnComplete,
+      onTaskError: mockOnError,
+      onTaskProgress: mockOnProgress,
+      autoCleanup: false,  // 测试时禁用自动清理
+      enableDependencyPriorityBoost: true,
+      dependencyPriorityBoost: 5
+    });
+  });
+
+  afterEach(() => {
+    controller.dispose();
+  });
+
+  // 测试任务创建和基本执行
+  test('应该能正确创建和执行任务', async () => {
+    // 先暂停控制器，防止任务立即执行
+    controller.pause();
+    
+    const taskId = await controller.addTask({
+      priority: 1,
+      execute: async (_, id) => {
+        await new Promise(resolve => setTimeout(resolve, 100));
+        return 'success';
+      }
+    });
+
+    const task = controller.getTaskStatus(taskId);
+    expect(task).toBeDefined();
+    expect(task?.status).toBe('pending');
+
+    // 恢复控制器，让任务开始执行
+    controller.resume();
+
+    // 等待任务完成
+    await new Promise(resolve => setTimeout(resolve, 200));
+    
+    expect(mockOnComplete).toHaveBeenCalled();
+    expect(task?.status).toBe('completed');
+    expect(task?.result).toBe('success');
+  });
+
+  // 测试任务优先级
+  test('应该按照优先级顺序执行任务', async () => {
+    // 先暂停控制器，防止任务立即执行
+    controller.pause();
+    const executionOrder: string[] = [];
+    
+    // 创建任务时使用不同的执行时间，确保能观察到执行顺序
+    const task1 = await controller.addTask({
+      priority: 1,
+      execute: async (_, id) => {
+        executionOrder.push(id);
+        await new Promise(resolve => setTimeout(resolve, 200));  // 增加执行时间
+      }
+    });
+
+    const task2 = await controller.addTask({
+      priority: 2,
+      execute: async (_, id) => {
+        executionOrder.push(id);
+        await new Promise(resolve => setTimeout(resolve, 200));  // 增加执行时间
+      }
+    });
+
+    const task3 = await controller.addTask({
+      priority: 3,
+      execute: async (_, id) => {
+        executionOrder.push(id);
+        await new Promise(resolve => setTimeout(resolve, 200));  // 增加执行时间
+      }
+    });
+
+    // 恢复控制器，让任务开始执行
+    controller.resume();
+
+    // 等待所有任务完成
+    await new Promise(resolve => setTimeout(resolve, 1000));  // 增加等待时间
+    
+    // 验证执行顺序：task3 > task2 > task1
+    expect(executionOrder[0]).toBe(task3);
+    expect(executionOrder[1]).toBe(task2);
+    expect(executionOrder[2]).toBe(task1);
+  });
+
+  // 测试任务依赖
+  test('应该正确处理任务依赖关系', async () => {
+    const executionOrder: string[] = [];
+    
+    const taskA = await controller.addTask({
+      priority: 1,
+      execute: async (_, id) => {
+        executionOrder.push(id);
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+    });
+
+    const taskB = await controller.addTask({
+      priority: 2,
+      dependencies: [taskA],
+      execute: async (_, id) => {
+        executionOrder.push(id);
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+    });
+
+    // 等待所有任务完成
+    await new Promise(resolve => setTimeout(resolve, 300));
+    
+    // 验证执行顺序：taskA 必须在 taskB 之前执行
+    expect(executionOrder[0]).toBe(taskA);
+    expect(executionOrder[1]).toBe(taskB);
+  });
+
+  // 测试任务重试
+  test('应该在失败时重试任务', async () => {
+    let attempts = 0;
+    const maxRetries = 2;
+    
+    const taskId = await controller.addTask({
+      priority: 1,
+      maxRetries,
+      execute: async (_, id) => {
+        attempts++;
+        if (attempts <= maxRetries) {
+          throw new Error('模拟失败');
+        }
+        return 'success';
+      }
+    });
+
+    // 等待任务完成或失败
+    await new Promise(resolve => setTimeout(resolve, 500));
+    
+    const task = controller.getTaskStatus(taskId);
+    expect(attempts).toBe(maxRetries + 1);  // 初始尝试 + 重试次数
+    expect(task?.status).toBe('completed');
+    expect(task?.result).toBe('success');
+  });
+
+  // 测试任务失败
+  test('应该在达到最大重试次数后标记任务为失败', async () => {
+    let attempts = 0;
+    const maxRetries = 2;
+    
+    const taskId = await controller.addTask({
+      priority: 1,
+      maxRetries,
+      execute: async (_, id) => {
+        attempts++;
+        throw new Error('模拟失败');
+      }
+    });
+
+    // 等待任务完成或失败
+    await new Promise(resolve => setTimeout(resolve, 500));
+    
+    const task = controller.getTaskStatus(taskId);
+    expect(attempts).toBe(maxRetries + 1);  // 初始尝试 + 重试次数
+    expect(task?.status).toBe('failed');
+    expect(task?.error?.message).toBe('模拟失败');
+    expect(mockOnError).toHaveBeenCalled();
+  });
+
+  // 测试任务暂停和恢复
+  test('应该能正确暂停和恢复任务', async () => {
+    const taskId = await controller.addTask({
+      priority: 1,
+      execute: async (_, id) => {
+        await new Promise(resolve => setTimeout(resolve, 500));
+        return 'success';
+      }
+    });
+
+    // 等待任务开始执行
+    await new Promise(resolve => setTimeout(resolve, 100));
+    
+    // 暂停任务
+    const pauseSuccess = controller.pauseTask(taskId);
+    expect(pauseSuccess).toBe(true);
+    
+    const pausedTask = controller.getTaskStatus(taskId);
+    expect(pausedTask?.status).toBe('paused');
+    
+    // 恢复任务
+    const resumeSuccess = controller.resumeTask(taskId);
+    expect(resumeSuccess).toBe(true);
+    
+    // 等待任务完成
+    await new Promise(resolve => setTimeout(resolve, 600));
+    
+    const completedTask = controller.getTaskStatus(taskId);
+    expect(completedTask?.status).toBe('completed');
+  });
+
+  // 测试任务进度更新
+  test('应该能正确更新任务进度', async () => {
+    const taskId = await controller.addTask({
+      priority: 1,
+      execute: async (controller, id) => {
+        controller.updateTaskProgress(id, 50);
+        await new Promise(resolve => setTimeout(resolve, 100));
+        controller.updateTaskProgress(id, 100);
+        return 'success';
+      }
+    });
+
+    // 等待任务完成
+    await new Promise(resolve => setTimeout(resolve, 200));
+    
+    expect(mockOnProgress).toHaveBeenCalledTimes(2);
+    expect(mockOnProgress).toHaveBeenNthCalledWith(1, expect.any(Object), 50);
+    expect(mockOnProgress).toHaveBeenNthCalledWith(2, expect.any(Object), 100);
+  });
+
+  // 测试失败任务清理
+  test('应该能正确清理失败的任务', async () => {
+    const taskId = await controller.addTask({
+      priority: 1,
+      maxRetries: 0,  // 不重试
+      execute: async () => {
+        throw new Error('模拟失败');
+      }
+    });
+
+    // 等待任务失败
+    await new Promise(resolve => setTimeout(resolve, 200));
+    
+    // 验证任务已失败
+    expect(controller.getFailedTasks().length).toBe(1);
+    
+    // 清理失败任务
+    controller.cleanupFailedTask();
+    
+    // 验证任务已被清理
+    expect(controller.getFailedTasks().length).toBe(0);
+  });
+
+  // 测试并发限制
+  test('应该遵守最大并发数限制', async () => {
+    const runningTasks: string[] = [];
+    
+    // 创建3个任务，但最大并发数为2
+    for (let i = 0; i < 3; i++) {
+      await controller.addTask({
+        priority: 1,
+        execute: async (_, id) => {
+          runningTasks.push(id);
+          await new Promise(resolve => setTimeout(resolve, 200));
+          runningTasks.splice(runningTasks.indexOf(id), 1);
+        }
+      });
+    }
+
+    // 等待一段时间后检查运行中的任务数
+    await new Promise(resolve => setTimeout(resolve, 100));
+    expect(runningTasks.length).toBeLessThanOrEqual(2);
+  });
+}); 
