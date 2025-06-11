@@ -1,0 +1,602 @@
+/**
+ * 任务接口定义
+ * @template T 任务执行结果的类型
+ */
+interface Task<T = any> {
+	/** 任务唯一标识符 */
+	id: string;
+	/** 任务优先级，数字越大优先级越高 */
+	priority: number;
+	/**
+	 * 任务执行函数
+	 * @param controller 任务控制器实例，用于更新任务状态和进度
+	 * @param taskId 当前任务的ID
+	 * @returns 任务执行结果
+	 */
+	execute: (controller: ConcurrentTaskController, taskId: string) => Promise<T>;
+	/** 任务当前状态 */
+	status: "pending" | "running" | "completed" | "failed" | "paused";
+	/** 任务执行结果 */
+	result?: T;
+	/** 任务执行错误信息 */
+	error?: Error;
+	/** 任务超时时间（毫秒） */
+	timeout?: number;
+	/** 当前重试次数 */
+	retries: number;
+	/** 最大重试次数 */
+	maxRetries: number;
+	/** 任务进度（0-100） */
+	progress: number;
+	/** 依赖的其他任务ID列表 */
+	dependencies: string[];
+	/** 进度更新回调函数 */
+	onProgress?: (progress: number) => void;
+	/** 原始优先级，用于优先级恢复 */
+	originalPriority?: number;
+	/** 是否为依赖提升的任务 */
+	isDependencyBoosted?: boolean;
+	/** 失败时间 */
+	failedAt?: number;
+}
+
+/**
+ * 任务控制器配置选项
+ */
+interface TaskControllerOptions {
+	/** 最大并发任务数 */
+	maxConcurrent: number;
+	/** 任务完成回调 */
+	onTaskComplete?: (task: Task) => void;
+	/** 任务失败回调 */
+	onTaskError?: (task: Task, error: Error) => void;
+	/** 任务超时回调 */
+	onTaskTimeout?: (task: Task) => void;
+	/** 任务进度更新回调 */
+	onTaskProgress?: (task: Task, progress: number) => void;
+	/** 是否自动清理已完成的任务 */
+	autoCleanup?: boolean;
+	/** 自动清理的时间间隔（毫秒） */
+	cleanupInterval?: number;
+	/** 依赖任务优先级提升值 */
+	dependencyPriorityBoost?: number;
+	/** 是否启用依赖任务优先级提升 */
+	enableDependencyPriorityBoost?: boolean;
+}
+
+/**
+ * 并发任务控制器
+ * 用于管理和控制多个异步任务的并发执行
+ */
+export class ConcurrentTaskController {
+	/** 所有任务的映射表 */
+	private tasks: Map<string, Task> = new Map();
+	/** 当前正在运行的任务ID集合 */
+	private runningTasks: Set<string> = new Set();
+	/** 依赖任务队列，存储等待依赖完成的任务ID */
+	private dependencyQueue: string[] = [];
+	/** 反向依赖映射，记录每个任务被哪些任务依赖 */
+	private reverseDependencies: Map<string, Set<string>> = new Map();
+	/** 控制器配置选项 */
+	private options: Required<TaskControllerOptions> & {
+		dependencyPriorityBoost: number;
+		enableDependencyPriorityBoost: boolean;
+	};
+	/** 自动清理定时器 */
+	private cleanupTimer?: NodeJS.Timeout;
+	/** 控制器是否处于暂停状态 */
+	private isPaused: boolean = false;
+
+	/**
+	 * 创建任务控制器实例
+	 * @param options 控制器配置选项
+	 */
+	constructor(options: TaskControllerOptions) {
+		this.options = {
+			maxConcurrent: options.maxConcurrent || 3,
+			onTaskComplete: options.onTaskComplete || (() => {}),
+			onTaskError: options.onTaskError || (() => {}),
+			onTaskTimeout: options.onTaskTimeout || (() => {}),
+			onTaskProgress: options.onTaskProgress || (() => {}),
+			autoCleanup: options.autoCleanup ?? true,
+			cleanupInterval: options.cleanupInterval || 60000, // 默认1分钟清理一次
+			dependencyPriorityBoost: options.dependencyPriorityBoost ?? 10,
+			enableDependencyPriorityBoost:
+				options.enableDependencyPriorityBoost ?? true,
+		};
+
+		if (this.options.autoCleanup) {
+			this.startCleanupTimer();
+		}
+	}
+
+	/**
+	 * 启动自动清理定时器
+	 * 定期清理已完成或失败的任务
+	 */
+	private startCleanupTimer(): void {
+		this.cleanupTimer = setInterval(() => {
+			this.cleanupCompletedTasks();
+		}, this.options.cleanupInterval);
+	}
+
+	/**
+	 * 更新任务的反向依赖关系
+	 * @param taskId 任务ID
+	 * @param dependencies 依赖的任务ID列表
+	 */
+	private updateReverseDependencies(
+		taskId: string,
+		dependencies: string[],
+	): void {
+		// 移除旧的反向依赖关系
+		for (const [depId, dependents] of this.reverseDependencies.entries()) {
+			dependents.delete(taskId);
+			if (dependents.size === 0) {
+				this.reverseDependencies.delete(depId);
+			}
+		}
+
+		// 添加新的反向依赖关系
+		for (const depId of dependencies) {
+			let dependents = this.reverseDependencies.get(depId);
+			if (!dependents) {
+				dependents = new Set();
+				this.reverseDependencies.set(depId, dependents);
+			}
+			dependents.add(taskId);
+		}
+	}
+
+	/**
+	 * 检查任务是否可以被清理
+	 * @param taskId 任务ID
+	 * @returns 如果任务可以被清理返回true，否则返回false
+	 */
+	private canCleanupTask(taskId: string): boolean {
+		const task = this.tasks.get(taskId);
+		if (!task) return true;
+
+		// 如果任务还在运行或等待中，不能清理
+		if (task.status === "running" || task.status === "pending") {
+			return false;
+		}
+
+		// 检查是否有依赖该任务的任务还未完成
+		const dependents = this.reverseDependencies.get(taskId);
+		if (!dependents) return true;
+
+		// 检查依赖任务是否完成
+		for (const dependentId of dependents) {
+			const dependent = this.tasks.get(dependentId);
+			// 如果依赖任务还在运行或等待中，不能清理
+			if (
+				dependent &&
+				(dependent.status === "running" ||
+					dependent.status === "pending" ||
+					(dependent.status === "failed" &&
+						dependent.retries < dependent.maxRetries))
+			) {
+				return false;
+			}
+		}
+
+		return true;
+	}
+
+	/**
+	 * 清理已完成或失败的任务
+	 */
+	private cleanupCompletedTasks(): void {
+		for (const [id, task] of this.tasks.entries()) {
+			if (
+				(task.status === "completed" || task.status === "failed") &&
+				this.canCleanupTask(id)
+			) {
+				// 清理反向依赖关系
+				this.reverseDependencies.delete(id);
+				// 清理任务
+				this.tasks.delete(id);
+			}
+		}
+	}
+
+	/**
+	 * 提升依赖任务的优先级
+	 * @param taskId 需要等待依赖的任务ID
+	 */
+	private boostDependencyPriorities(taskId: string): void {
+		if (!this.options.enableDependencyPriorityBoost) return;
+
+		const task = this.tasks.get(taskId);
+		if (!task || !task.dependencies?.length) return;
+
+		// 提升所有依赖任务的优先级
+		task.dependencies.forEach((depId) => {
+			const depTask = this.tasks.get(depId);
+			if (
+				depTask &&
+				depTask.status === "pending" &&
+				!depTask.isDependencyBoosted
+			) {
+				depTask.originalPriority = depTask.priority;
+				depTask.priority =
+					(depTask.priority || 0) + this.options.dependencyPriorityBoost;
+				depTask.isDependencyBoosted = true;
+			}
+		});
+	}
+
+	/**
+	 * 恢复依赖任务的原始优先级
+	 * @param taskId 已完成的任务ID
+	 */
+	private restoreDependencyPriorities(taskId: string): void {
+		const task = this.tasks.get(taskId);
+		if (
+			!task ||
+			!task.isDependencyBoosted ||
+			task.originalPriority === undefined
+		)
+			return;
+
+		task.priority = task.originalPriority;
+		task.isDependencyBoosted = false;
+		task.originalPriority = undefined;
+	}
+
+	/**
+	 * 获取下一个要执行的任务
+	 * 根据优先级排序，返回优先级最高的待执行任务
+	 * 优先处理依赖任务队列中的任务
+	 */
+	private getNextTask(): Task | undefined {
+		// 首先检查依赖任务队列
+		for (const taskId of this.dependencyQueue) {
+			const task = this.tasks.get(taskId);
+			if (task && task.status === "pending") {
+				if (!this.areDependenciesCompleted(task)) {
+					this.boostDependencyPriorities(task.id);
+					continue;
+				}
+				return task;
+			}
+		}
+
+		// 然后检查其他待执行任务，优先处理重试任务
+		const pendingTasks = Array.from(this.tasks.values()).filter(
+			(task) =>
+				task.status === "pending" && !this.dependencyQueue.includes(task.id),
+		);
+
+		const sorted = pendingTasks.sort((a, b) => {
+			if (a.retries > 0 && b.retries === 0) return -1;
+			if (a.retries === 0 && b.retries > 0) return 1;
+			return b.priority - a.priority;
+		});
+		return sorted[0];
+	}
+
+	/**
+	 * 检查任务的所有依赖是否都已完成
+	 * @param task 要检查的任务
+	 * @returns 如果所有依赖都已完成返回true，否则返回false
+	 */
+	private areDependenciesCompleted(task: Task): boolean {
+		return task.dependencies?.every((depId) => {
+			const depTask = this.tasks.get(depId);
+			return depTask?.status === "completed";
+		}) ?? true;
+	}
+
+	/**
+	 * 将任务添加到依赖队列
+	 * @param taskId 任务ID
+	 */
+	private addToDependencyQueue(taskId: string): void {
+		if (!this.dependencyQueue.includes(taskId)) {
+			this.dependencyQueue.push(taskId);
+		}
+	}
+
+	/**
+	 * 从依赖队列中移除任务
+	 * @param taskId 任务ID
+	 */
+	private removeFromDependencyQueue(taskId: string): void {
+		this.dependencyQueue = this.dependencyQueue.filter((id) => id !== taskId);
+	}
+
+	/**
+	 * 处理依赖任务完成后的调度
+	 * @param completedTaskId 刚完成的任务ID
+	 */
+	private handleDependencyCompletion(completedTaskId: string): void {
+		// 恢复已完成任务的优先级
+		this.restoreDependencyPriorities(completedTaskId);
+
+		// 检查依赖队列中是否有任务可以开始执行
+		const readyTasks = this.dependencyQueue.filter((taskId) => {
+			const task = this.tasks.get(taskId);
+			return (
+				task && task.status === "pending" && this.areDependenciesCompleted(task)
+			);
+		});
+
+		// 从依赖队列中移除可以执行的任务
+		for (const taskId of readyTasks) {
+			this.removeFromDependencyQueue(taskId);
+		}
+	}
+
+	/**
+	 * 处理下一个待执行的任务
+	 * 根据优先级和依赖关系选择并执行任务
+	 */
+	private async processNextTask(): Promise<void> {
+		if (this.isPaused || this.runningTasks.size >= this.options.maxConcurrent) {
+			return;
+		}
+
+		const nextTask = this.getNextTask();
+		if (!nextTask) {
+			return;
+		}
+
+		// 检查依赖任务是否完成
+		if (
+			nextTask.dependencies?.length &&
+			!this.areDependenciesCompleted(nextTask)
+		) {
+			this.addToDependencyQueue(nextTask.id);
+			return;
+		}
+
+		this.removeFromDependencyQueue(nextTask.id);
+		this.runningTasks.add(nextTask.id);
+		nextTask.status = "running";
+
+		try {
+			const timeoutPromise = nextTask.timeout
+				? new Promise((_, reject) =>
+						setTimeout(
+							() => reject(new Error("Task timeout")),
+							nextTask.timeout,
+						),
+				  )
+				: null;
+
+			const result = await Promise.race([
+				nextTask.execute(this, nextTask.id),
+				...(timeoutPromise ? [timeoutPromise] : []),
+			]);
+
+			nextTask.status = "completed";
+			nextTask.result = result;
+			this.options.onTaskComplete(nextTask);
+			this.handleDependencyCompletion(nextTask.id);
+		} catch (error) {
+			if (nextTask.retries < nextTask.maxRetries) {
+				nextTask.retries++;
+				nextTask.status = "pending";
+				nextTask.error = error as Error;
+				nextTask.priority =
+					(nextTask.priority || 0) + this.options.dependencyPriorityBoost;
+			} else {
+				nextTask.status = "failed";
+				nextTask.error = error as Error;
+				nextTask.failedAt = Date.now();
+				this.options.onTaskError(nextTask, error as Error);
+			}
+		} finally {
+			this.runningTasks.delete(nextTask.id);
+			if (!this.isPaused) {
+				setTimeout(() => this.processNextTask(), 0);
+			}
+		}
+	}
+
+	/**
+	 * 添加新任务到控制器
+	 * @param task 任务配置
+	 * @returns 任务ID
+	 */
+	async addTask<T>(task: {
+		priority: number;
+		execute: (
+			controller: ConcurrentTaskController,
+			taskId: string,
+		) => Promise<T>;
+		timeout?: number;
+		maxRetries?: number;
+		dependencies?: string[];
+		onProgress?: (progress: number) => void;
+	}): Promise<string> {
+		const taskId = Math.random().toString(36).substring(2, 15);
+		const newTask: Task<T> = {
+			...task,
+			id: taskId,
+			status: "pending",
+			retries: 0,
+			maxRetries: task.maxRetries ?? 0,
+			progress: 0,
+			dependencies: task.dependencies ?? [],
+			originalPriority: task.priority,
+			isDependencyBoosted: false,
+		};
+
+		this.tasks.set(taskId, newTask);
+
+		// 更新反向依赖关系
+		this.updateReverseDependencies(taskId, newTask.dependencies);
+
+		// 检查任务是否可以立即执行
+		if (
+			newTask.dependencies.length &&
+			!this.areDependenciesCompleted(newTask)
+		) {
+			this.addToDependencyQueue(taskId);
+			// 提升依赖任务的优先级
+			this.boostDependencyPriorities(taskId);
+		}
+
+		if (!this.isPaused) {
+			this.processNextTask();
+		}
+		return taskId;
+	}
+
+	/**
+	 * 更新任务进度
+	 * @param taskId 任务ID
+	 * @param progress 进度值（0-100）
+	 */
+	updateTaskProgress(taskId: string, progress: number): void {
+		const task = this.tasks.get(taskId);
+		if (task && task.status === "running") {
+			task.progress = Math.min(100, Math.max(0, progress));
+			task.onProgress?.(task.progress);
+			this.options.onTaskProgress(task, task.progress);
+		}
+	}
+
+	/**
+	 * 暂停所有任务
+	 */
+	pause(): void {
+		this.isPaused = true;
+	}
+
+	/**
+	 * 恢复所有任务
+	 */
+	resume(): void {
+		this.isPaused = false;
+		this.processNextTask();
+	}
+
+	/**
+	 * 暂停指定任务
+	 * @param taskId 任务ID
+	 * @returns 是否成功暂停
+	 */
+	pauseTask(taskId: string): boolean {
+		const task = this.tasks.get(taskId);
+		if (task && task.status === "running") {
+			task.status = "paused";
+			this.runningTasks.delete(taskId);
+			this.processNextTask();
+			return true;
+		}
+		return false;
+	}
+
+	/**
+	 * 恢复指定任务
+	 * @param taskId 任务ID
+	 * @returns 是否成功恢复
+	 */
+	resumeTask(taskId: string): boolean {
+		const task = this.tasks.get(taskId);
+		if (task && task.status === "paused") {
+			task.status = "pending";
+			this.processNextTask();
+			return true;
+		}
+		return false;
+	}
+
+	/**
+	 * 获取任务状态
+	 * @param taskId 任务ID
+	 */
+	getTaskStatus(taskId: string): Task | undefined {
+		return this.tasks.get(taskId);
+	}
+
+	/**
+	 * 获取所有任务
+	 */
+	getAllTasks(): Task[] {
+		return Array.from(this.tasks.values());
+	}
+
+	/**
+	 * 获取正在运行的任务
+	 */
+	getRunningTasks(): Task[] {
+		return Array.from(this.runningTasks).map((id) => this.tasks.get(id)!);
+	}
+
+	/**
+	 * 获取等待中的任务
+	 */
+	getPendingTasks(): Task[] {
+		return Array.from(this.tasks.values()).filter(
+			(task) => task.status === "pending",
+		);
+	}
+
+	/**
+	 * 取消指定任务
+	 * @param taskId 任务ID
+	 * @returns 是否成功取消
+	 */
+	cancelTask(taskId: string): boolean {
+		const task = this.tasks.get(taskId);
+		if (!task || task.status !== "pending") {
+			return false;
+		}
+		// 清理反向依赖关系
+		this.reverseDependencies.delete(taskId);
+		this.tasks.delete(taskId);
+		return true;
+	}
+
+	/**
+	 * 清空所有任务
+	 */
+	clear(): void {
+		this.tasks.clear();
+		this.runningTasks.clear();
+		this.reverseDependencies.clear();
+	}
+
+	/**
+	 * 释放控制器资源
+	 */
+	dispose(): void {
+		if (this.cleanupTimer) {
+			clearInterval(this.cleanupTimer);
+		}
+		this.clear();
+	}
+
+	/**
+	 * 获取失败的任务列表
+	 */
+	getFailedTasks(): Task[] {
+		return Array.from(this.tasks.values()).filter(
+			(task) => task.status === "failed",
+		);
+	}
+
+	/**
+	 * 清理失败的任务
+	 * @param taskId 可选的任务ID，如果不提供则清理所有失败任务
+	 */
+	cleanupFailedTask(taskId?: string): void {
+		if (taskId) {
+			const task = this.tasks.get(taskId);
+			if (task && task.status === "failed") {
+				this.tasks.delete(taskId);
+			}
+		} else {
+			for (const [id, task] of this.tasks.entries()) {
+				if (task.status === "failed") {
+					this.tasks.delete(id);
+				}
+			}
+		}
+	}
+}
