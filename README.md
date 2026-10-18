@@ -6,7 +6,7 @@
 
 | 模块 | 说明 |
 | --- | --- |
-| `async` | 异步工具：`sleep`、`runWithLimit`（后续迁移 taskController） |
+| `async` | 异步工具：`sleep`、`runWithLimit` |
 
 ## 开发
 
