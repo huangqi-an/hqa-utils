@@ -27,8 +27,12 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+ssh://git@github.com/huangqi-an/hqa-utils.git"
+    "url": "git+https://github.com/huangqi-an/hqa-utils.git"
   },
+  "bugs": {
+    "url": "https://github.com/huangqi-an/hqa-utils/issues"
+  },
+  "homepage": "https://github.com/huangqi-an/hqa-utils#readme",
   "keywords": [
     "utils",
     "typescript",
@@ -46,8 +50,5 @@
     "typescript": "^5.9.2",
     "typescript-eslint": "^8.44.0",
     "vitest": "^3.2.4"
-  },
-  "allowScripts": {
-    "esbuild@0.27.7": true
   }
 }

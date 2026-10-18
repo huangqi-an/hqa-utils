@@ -24,3 +24,12 @@ npm run build      # 构建（ESM + CJS + d.ts）
 - `src/<模块>/index.ts` — 模块源码，带 TSDoc 注释
 - `src/<模块>/index.test.ts` — 模块测试（vitest）
 - 新模块需在 `src/index.ts` 中 re-export
+
+## 发布
+
+推送 `v*` tag 触发 CI 自动发布（lint → test → build → npm publish + GitHub Release）：
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
