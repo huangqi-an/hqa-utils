@@ -66,7 +66,7 @@ const pages = await Promise.all(
 // 运行状态
 limit.activeCount; // 正在执行的任务数
 limit.pendingCount; // 排队等待的任务数
-limit.clearQueue(); // 丢弃排队中的任务（不影响正在执行的）
+limit.clearQueue(); // 清空排队任务（正在执行的不受影响），被丢弃的 Promise 以 QueueClearedError reject
 ```
 
 ## 开发

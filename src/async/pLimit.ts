@@ -1,3 +1,13 @@
+/**
+ * 队列清空错误：排队中的任务被 clearQueue 丢弃时抛出
+ */
+export class QueueClearedError extends Error {
+  constructor(message = "Task was cleared from the queue before execution") {
+    super(message);
+    this.name = "QueueClearedError";
+  }
+}
+
 export interface LimitFunction {
   /** 执行任务，超过并发上限时排队等待 */
   <T>(fn: () => Promise<T> | T): Promise<T>;
@@ -5,7 +15,7 @@ export interface LimitFunction {
   readonly activeCount: number;
   /** 当前排队等待的任务数 */
   readonly pendingCount: number;
-  /** 丢弃所有排队中的任务（对应 Promise 永远不会 settle），不影响正在执行的任务 */
+  /** 清空排队中的任务，并以 QueueClearedError reject 它们的 Promise；正在执行的任务不受影响 */
   clearQueue(): void;
 }
 
@@ -61,7 +71,10 @@ export function pLimit(concurrency: number): LimitFunction {
     pendingCount: { get: () => queue.length },
     clearQueue: {
       value: () => {
-        queue.length = 0;
+        const dropped = queue.splice(0);
+        for (const { reject } of dropped) {
+          reject(new QueueClearedError());
+        }
       },
     },
   });

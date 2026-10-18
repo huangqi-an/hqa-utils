@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { pLimit } from "./pLimit.js";
+import { pLimit, QueueClearedError } from "./pLimit.js";
 import { sleep } from "./sleep.js";
 
 describe("pLimit", () => {
@@ -55,7 +55,7 @@ describe("pLimit", () => {
     expect(results[1]).toMatchObject({ value: "ok" });
   });
 
-  it("clearQueue 丢弃排队中的任务，但不影响正在执行的", async () => {
+  it("clearQueue 以 QueueClearedError reject 排队中的任务，不影响正在执行的", async () => {
     const limit = pLimit(1);
     let firstFinished = false;
     const first = limit(async () => {
@@ -63,29 +63,38 @@ describe("pLimit", () => {
       firstFinished = true;
       return "first";
     });
-    const queued = [limit(() => "q1"), limit(() => "q2")];
+    // 立刻挂上 catch，避免 reject 时产生 unhandled rejection 告警
+    const q1 = limit(() => "q1").catch((e: unknown) => e);
+    const q2 = limit(() => "q2").catch((e: unknown) => e);
 
     expect(limit.pendingCount).toBe(2);
     limit.clearQueue();
     expect(limit.pendingCount).toBe(0);
 
+    expect(await q1).toBeInstanceOf(QueueClearedError);
+    expect(await q2).toBeInstanceOf(QueueClearedError);
+
     const firstResult = await first;
     expect(firstResult).toBe("first");
     expect(firstFinished).toBe(true);
-    // 被丢弃的排队任务永远不会 settle，这里只验证清空后新任务可正常执行
+    // 清空后新的任务仍可正常执行
     expect(await limit(() => "new")).toBe("new");
-    // 避免 queued 未使用告警
-    void queued;
   });
 
   it("clearQueue 后新任务正常执行", async () => {
     const limit = pLimit(1);
     const dummy = limit(() => sleep(10).then(() => "a"));
-    const never = limit(() => "b");
+    const dropped = limit(() => "b").catch((e: unknown) => e);
     limit.clearQueue();
     await dummy;
+    expect(await dropped).toBeInstanceOf(QueueClearedError);
     expect(await limit(() => "c")).toBe("c");
-    void never;
+  });
+
+  it("队列为空时调用 clearQueue 是安全的", () => {
+    const limit = pLimit(2);
+    expect(() => limit.clearQueue()).not.toThrow();
+    expect(limit.pendingCount).toBe(0);
   });
 
   it("concurrency 非法时同步抛出 RangeError", () => {
