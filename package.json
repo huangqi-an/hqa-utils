@@ -1,0 +1,53 @@
+{
+  "name": "hqa-utils",
+  "version": "0.1.0",
+  "description": "Personal TypeScript utility library",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "lint": "eslint src",
+    "typecheck": "tsc --noEmit"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com/huangqi-an/hqa-utils.git"
+  },
+  "keywords": [
+    "utils",
+    "typescript",
+    "toolkit"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.36.0",
+    "@vitest/coverage-v8": "^3.2.4",
+    "eslint": "^9.36.0",
+    "tsup": "^8.5.0",
+    "typescript": "^5.9.2",
+    "typescript-eslint": "^8.44.0",
+    "vitest": "^3.2.4"
+  },
+  "allowScripts": {
+    "esbuild@0.27.7": true
+  }
+}
