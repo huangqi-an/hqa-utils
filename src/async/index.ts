@@ -1,10 +1,4 @@
 /**
- * 异步工具模块
- *
- * 计划承载：taskController（并发任务控制）、retry、limit 等
- */
-
-/**
  * 延时指定毫秒数
  * @param ms 延迟毫秒数
  */
