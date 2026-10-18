@@ -82,8 +82,9 @@ npm run build      # 构建（ESM + CJS + d.ts）
 
 ## 结构
 
-- `src/<模块>/index.ts` — 模块源码，带 TSDoc 注释
-- `src/<模块>/index.test.ts` — 模块测试（vitest）
+- `src/<模块>/<功能>.ts` — 一个功能一个文件，带 TSDoc 注释
+- `src/<模块>/<功能>.test.ts` — 对应功能的测试（vitest）
+- `src/<模块>/index.ts` — 汇总 re-export 本模块全部功能
 - 新模块需在 `src/index.ts` 中 re-export
 
 ## 发布
