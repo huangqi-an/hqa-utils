@@ -29,8 +29,36 @@ describe("runWithLimit", () => {
     expect(await runWithLimit([], 2)).toEqual([]);
   });
 
-  it("concurrency < 1 时抛出 RangeError", async () => {
-    await expect(runWithLimit([], 0)).rejects.toThrow(RangeError);
+  it("concurrency 非法时抛出 RangeError", async () => {
+    const invalid = [
+      0,
+      -1,
+      1.5,
+      Number.NaN,
+      Number.NEGATIVE_INFINITY,
+      "2" as unknown as number,
+    ];
+    for (const concurrency of invalid) {
+      await expect(runWithLimit([], concurrency)).rejects.toThrow(RangeError);
+    }
+    await expect(runWithLimit([], 0)).rejects.toThrow(
+      /positive integer or Infinity/,
+    );
+  });
+
+  it("concurrency 为 Infinity 时全部并发执行", async () => {
+    let active = 0;
+    let peak = 0;
+    const tasks = Array.from({ length: 5 }, () => async () => {
+      active++;
+      peak = Math.max(peak, active);
+      await sleep(5);
+      active--;
+      return "x";
+    });
+    const results = await runWithLimit(tasks, Number.POSITIVE_INFINITY);
+    expect(results).toEqual(["x", "x", "x", "x", "x"]);
+    expect(peak).toBe(5);
   });
 
   it("任务失败时 reject", async () => {
