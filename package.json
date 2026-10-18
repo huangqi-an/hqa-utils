@@ -1,5 +1,5 @@
 {
-  "name": "hqa-utils",
+  "name": "@huangqi_an/hqa-utils",
   "version": "0.1.0",
   "description": "Personal TypeScript utility library",
   "type": "module",
