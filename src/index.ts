@@ -1,5 +1,6 @@
 export * from "./async/index.js";
 export * from "./client/index.js";
 export * from "./mouse/index.js";
+export * from "./dom/index.js";
 export * from "./schedule/index.js";
 export * from "./storage/index.js";
