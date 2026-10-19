@@ -20,4 +20,5 @@ jobs:
       - run: npm run build
       - uses: codecov/codecov-action@v5
         with:
+          token: ${{ secrets.CODECOV_TOKEN }}
           files: coverage/lcov.info
