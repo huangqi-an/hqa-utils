@@ -9,7 +9,7 @@
 | `async` | 异步工具：`sleep`、`runWithLimit`、`withTimeout`、`retry`、`pLimit` |
 | `client` | 客户端信息：`isBrowser`、`getUserAgent`、`parseUserAgent`、平台检测、`getClientInfo` |
 | `mouse` | 鼠标工具：`getMousePosition`、`onLongPress`、`onMouseIdle`、`isMouseSupported` |
-| `schedule` | 调度工具：`raf`、`waitFrames`、`rafThrottle`、`onRafLoop`、`whenIdle` |
+| `schedule` | 调度工具：`raf`、`waitFrames`、`rafThrottle`、`onRafLoop`、`whenIdle`、`createIdleQueue` |
 
 ## 用法
 
@@ -295,6 +295,35 @@ await whenIdle((deadline) => {
 
 - 无 rIC 的环境降级为 `setTimeout 1ms` + 模拟 deadline（`didTimeout: true`），API 形状不变
 - `timeout` 透传给原生 rIC，始终等不到空闲时强制执行，避免任务饥饿
+
+### createIdleQueue(options?)
+
+空闲任务队列：把多个低优先级任务（预取、日志上报、索引构建等）批量推迟到浏览器空闲时段，按 FIFO 顺序分帧执行，不阻塞渲染。
+
+```ts
+import { createIdleQueue } from "@huangqi_an/hqa-utils";
+
+const queue = createIdleQueue({ timeout: 2000 });
+
+// 入队（FIFO），可 await 任务结果
+queue.push(() => prefetch("/users")).then(() => console.log("users ready"));
+const report = await queue.push(() => buildReport());
+
+queue.size; // 待执行任务数
+queue.clear(); // 清空挂起任务，其 Promise 以 IdleQueueCancelledError reject
+queue.pause(); // 暂停派发（如视频播放期间停止预取）
+queue.resume(); // 恢复派发
+queue.destroy(); // 销毁：清空任务、撤销调度，之后 push 直接 reject
+```
+
+| 选项 | 默认 | 说明 |
+| --- | --- | --- |
+| `timeout` | - | 传给 rIC 的超时毫秒数，页面长期繁忙时任务仍会被执行（防饥饿） |
+| `timeSlice` | `12` | 无 rIC 环境下每批任务的时间预算（ms） |
+
+- 每个空闲切片内按 `deadline.timeRemaining()` 决定是否继续执行，剩余任务自动等下一个空闲切片（分帧）
+- 无 rIC 的环境（旧浏览器 / Node / SSR）降级为 `setTimeout`，按 `timeSlice` 预算分批
+- 任务抛错、或被 `clear` / `destroy` 取消时，对应 `push` 返回的 Promise reject；fire-and-forget 场景请自行附加 `catch`
 
 ## 开发
 
