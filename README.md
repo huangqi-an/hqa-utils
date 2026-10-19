@@ -4,6 +4,7 @@
 [![npm](https://img.shields.io/npm/v/@huangqi_an/hqa-utils)](https://www.npmjs.com/package/@huangqi_an/hqa-utils)
 [![downloads](https://img.shields.io/npm/dm/@huangqi_an/hqa-utils)](https://www.npmjs.com/package/@huangqi_an/hqa-utils)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
+[![codecov](https://codecov.io/gh/huangqi-an/hqa-utils/graph/badge.svg)](https://codecov.io/gh/huangqi-an/hqa-utils)
 
 个人 TypeScript 工具库。
 
