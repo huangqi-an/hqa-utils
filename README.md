@@ -9,6 +9,7 @@
 | `async` | 异步工具：`sleep`、`runWithLimit`、`withTimeout`、`retry`、`pLimit` |
 | `client` | 客户端信息：`isBrowser`、`getUserAgent`、`parseUserAgent`、平台检测、`getClientInfo` |
 | `mouse` | 鼠标工具：`getMousePosition`、`onLongPress`、`onMouseIdle`、`isMouseSupported` |
+| `schedule` | 调度工具：`raf`、`waitFrames`、`rafThrottle`、`onRafLoop`、`whenIdle` |
 
 ## 用法
 
@@ -217,6 +218,83 @@ if (isMouseSupported()) {
 ```
 
 - 主输入设备为触屏（手机 / 平板）时返回 `false`；不支持 matchMedia 的旧浏览器返回 `false`
+
+### raf(fn?) / waitFrames(n)
+
+Promise 化的帧等待，基于 requestAnimationFrame。
+
+```ts
+import { raf, waitFrames } from "@huangqi_an/hqa-utils";
+
+// 等一帧后再测量
+container.appendChild(el);
+await raf();
+const height = el.getBoundingClientRect().height;
+
+// 等两帧触发 CSS 过渡
+await waitFrames(2);
+el.style.opacity = "1";
+```
+
+- `raf(fn)` 在下一帧执行 `fn` 并以返回值 resolve；无参调用 resolve 帧时间戳
+- 无 rAF 的环境（Node / SSR）降级为 `setTimeout 16ms`
+
+### rafThrottle(fn)
+
+帧节流：一帧内的多次调用只按最后一次参数执行一次，以渲染节奏为基准。
+
+```ts
+import { rafThrottle } from "@huangqi_an/hqa-utils";
+
+const render = rafThrottle((x: number) => {
+  el.style.transform = `translateX(${x}px)`;
+});
+
+window.addEventListener("mousemove", (e) => render(e.clientX));
+render.cancel(); // 取消未执行的调用
+```
+
+- 适合 scroll / mousemove / resize 等高频事件驱动渲染的场景
+- 回调异常直接抛出到全局（不吞错），节流状态不受影响
+
+### onRafLoop(cb)
+
+持续动画循环，每帧调用回调直到停止。
+
+```ts
+import { onRafLoop } from "@huangqi_an/hqa-utils";
+
+const stop = onRafLoop((time, delta) => {
+  x += speed * (delta / 1000); // 帧率无关的位移
+  el.style.transform = `translateX(${x}px)`;
+});
+
+stop(); // 组件卸载时停止
+```
+
+- `delta` 为与上一帧的间隔毫秒数，首帧为 `0`
+- 回调抛错会终止循环（避免错误每帧刷屏）；无 rAF 的环境返回 noop
+
+### whenIdle(fn?, options?)
+
+Promise 化的 requestIdleCallback，空闲时执行低优先级任务。
+
+```ts
+import { whenIdle } from "@huangqi_an/hqa-utils";
+
+// 空闲时预加载
+await whenIdle(() => prefetchNextPage());
+
+// 按 deadline 分片处理，2 秒内等不到空闲则强制执行
+await whenIdle((deadline) => {
+  while (deadline.timeRemaining() > 0 && tasks.length) {
+    tasks.pop()();
+  }
+}, { timeout: 2000 });
+```
+
+- 无 rIC 的环境降级为 `setTimeout 1ms` + 模拟 deadline（`didTimeout: true`），API 形状不变
+- `timeout` 透传给原生 rIC，始终等不到空闲时强制执行，避免任务饥饿
 
 ## 开发
 
