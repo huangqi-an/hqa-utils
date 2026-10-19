@@ -1,6 +1,13 @@
 # hqa-utils
 
+[![CI](https://github.com/huangqi-an/hqa-utils/actions/workflows/ci.yml/badge.svg)](https://github.com/huangqi-an/hqa-utils/actions/workflows/ci.yml)
+[![npm](https://img.shields.io/npm/v/@huangqi_an/hqa-utils)](https://www.npmjs.com/package/@huangqi_an/hqa-utils)
+[![downloads](https://img.shields.io/npm/dm/@huangqi_an/hqa-utils)](https://www.npmjs.com/package/@huangqi_an/hqa-utils)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
+
 个人 TypeScript 工具库。
+
+参与贡献请先阅读 [CONTRIBUTING.md](./CONTRIBUTING.md)。
 
 ## 模块
 
