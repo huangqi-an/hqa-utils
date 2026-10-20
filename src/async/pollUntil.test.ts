@@ -61,14 +61,18 @@ describe("pollUntil（轮询）", () => {
 
   it("timeout 超时后以 TimeoutError reject", async () => {
     const p = pollUntil(() => 0, undefined, { interval: 500, timeout: 1000 });
+    // advance 会触发 reject，必须先挂载处理，避免 unhandled rejection
+    const errorPromise = p.catch((e: unknown) => e);
     await vi.advanceTimersByTimeAsync(1000);
-    await expect(p).rejects.toBeInstanceOf(TimeoutError);
+    const error = await errorPromise;
+    expect(error).toBeInstanceOf(TimeoutError);
   });
 
   it("maxAttempts 用尽后以 PollAttemptsExhaustedError reject，携带尝试次数", async () => {
     const p = pollUntil(() => 0, undefined, { interval: 100, maxAttempts: 2 });
+    const errorPromise = p.catch((e: unknown) => e);
     await vi.advanceTimersByTimeAsync(300);
-    const error = await p.catch((e: unknown) => e as PollAttemptsExhaustedError);
+    const error = await errorPromise;
     expect(error).toBeInstanceOf(PollAttemptsExhaustedError);
     expect((error as PollAttemptsExhaustedError).attempts).toBe(2);
   });
