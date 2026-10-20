@@ -25,7 +25,7 @@
 | `timing` | 定时控制：`debounce`、`throttle`（leading/trailing/cancel/flush） |
 | `url` | 查询参数操作：`parseQuery`、`buildUrl`、`updateSearchParams`、`replaceQueryState` |
 | `page` | 页面可见性：`onVisibilityChange` 订阅、`whenDocumentVisible` 等待可见（SSR 安全） |
-| `scroll` | 滚动小件：`getScrollPercent` 进度查询、`smoothScrollTo` 平滑滚动（尊重减少动画偏好） |
+| `scroll` | 滚动小件：`getScrollPercent` 进度查询、`smoothScrollTo` 平滑滚动、`onScrollNearBottom` 无限加载、`onScrollDirection` 方向监听 |
 
 ## 用法
 
@@ -741,6 +741,52 @@ smoothScrollTo("top");                      // 回到顶部
 smoothScrollTo(sectionEl, { offset: -80 }); // 滚到元素并扣除固定头部
 smoothScrollTo(600, { behavior: "auto" });  // 瞬时滚到 600px
 smoothScrollTo(bottomEl, { container: listEl }); // 在容器内滚动
+```
+
+### onScrollNearBottom(target, callback, options?)
+
+监听滚动接近底部，用于无限加载 / "加载更多"。**订阅时立即检查一次**（内容不满屏时开箱即用），之后每次滚动事件中距底部 ≤ `threshold` 就触发。同一停留期间可能多次触发（如异步加载期间继续滚动），请自行加加载锁防重。
+
+| 选项 | 默认 | 说明 |
+| --- | --- | --- |
+| `threshold` | `100` | 距底部多少像素内触发 |
+
+```ts
+import { onScrollNearBottom } from "@huangqi_an/hqa-utils";
+
+// 无限加载（自带加载锁防重复触发）
+let loading = false;
+const stop = onScrollNearBottom(
+  window, // 也可传容器元素做内部滚动
+  async () => {
+    if (loading) return;
+    loading = true;
+    await loadNextPage();
+    loading = false;
+  },
+  { threshold: 200 },
+);
+stop();
+```
+
+### onScrollDirection(target, callback, options?)
+
+监听滚动方向变化，方向反转时触发（`"down"` / `"up"`）。只检测垂直方向；订阅后的第一次滚动即按实际方向触发；纯水平滚动、iOS 顶/底回弹不触发。适合"向下滚隐藏、向上滚显示"的悬浮头部交互。
+
+| 选项 | 默认 | 说明 |
+| --- | --- | --- |
+| `tolerance` | `0` | 容忍带（像素），带内滚动不触发，用于过滤触摸/惯性抖动 |
+
+```ts
+import { onScrollDirection } from "@huangqi_an/hqa-utils";
+
+onScrollDirection(
+  window,
+  (dir) => {
+    header.classList.toggle("hidden", dir === "down");
+  },
+  { tolerance: 8 },
+);
 ```
 
 ## 开发
