@@ -9,3 +9,4 @@ export * from "./timing/index.js";
 export * from "./device/index.js";
 export * from "./url/index.js";
 export * from "./page/index.js";
+export * from "./scroll/index.js";
