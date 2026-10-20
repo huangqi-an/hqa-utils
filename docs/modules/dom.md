@@ -1,12 +1,13 @@
 # dom DOM 小件
 
-剪贴板、元素可见性/尺寸观察、文件下载。
+剪贴板、元素可见性/尺寸观察、事件委托、文件下载。
 
 | 导出 | 说明 |
 | --- | --- |
 | `copyText(text)` | 复制文本到剪贴板（带降级） |
 | `onElementVisible(el, callback, options?)` | 元素进入/离开视口订阅 |
 | `onElementResize(el, callback)` | 元素尺寸变化订阅 |
+| `onDelegate(root, type, selector, listener, options?)` | 根元素事件委托 |
 | `downloadFile(data, filename, mime?)` | 触发浏览器下载 |
 
 ## copyText(text)
@@ -52,6 +53,25 @@ const stop = onElementResize(chartContainer, ({ width, height }) => {
 
 - 回调参数为内容区尺寸（不含 padding / border）
 - 不支持 ResizeObserver 的环境返回 noop
+
+## onDelegate(root, type, selector, listener, options?)
+
+在根元素上进行事件委托：事件冒泡到 `root` 后按 `closest(selector)` 匹配实际目标。动态列表只绑定一次，子元素随便增删，新增项自动生效。
+
+```ts
+import { onDelegate } from "@huangqi_an/hqa-utils";
+
+const stop = onDelegate(document, "click", ".item", (event, item) => {
+  console.log("点击了", (item as HTMLElement).dataset.id);
+});
+
+stop(); // 组件卸载时取消
+```
+
+- 回调第二参数 `matched` 直接给出匹配到的元素（可能是 target 自身或其祖先），省去回调内再 `closest` 一次
+- `capture` 选项透传给原生监听，`focus` / `blur` 等不冒泡事件需传 `true`
+- 不穿透 Shadow DOM（冒泡出 shadow root 后 target 已被重定向），需要时请基于 `composedPath()` 自行实现
+- SSR 或 `root` 无效时返回 noop
 
 ## downloadFile(data, filename, mime?)
 

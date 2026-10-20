@@ -19,7 +19,7 @@
 | `async` | 异步工具：`sleep`、`runWithLimit`、`withTimeout`、`retry`、`pLimit`、`pollUntil` |
 | `client` | 客户端信息：`isBrowser`、`getUserAgent`、`parseUserAgent`、平台检测、`getClientInfo` |
 | `device` | 设备感知：`onNetworkChange`、`getConnectionInfo`、`onMediaQueryChange`、`prefersDarkScheme`、`prefersReducedMotion` |
-| `dom` | DOM 小件：`copyText`、`onElementVisible`、`onElementResize`、`downloadFile` |
+| `dom` | DOM 小件：`copyText`、`onElementVisible`、`onElementResize`、`onDelegate`、`downloadFile` |
 | `mouse` | 鼠标工具：`getMousePosition`、`onLongPress`、`onMouseIdle`、`isMouseSupported` |
 | `preload` | 资源预加载：`preloadResource`、`preconnectTo`、`dnsPrefetch`、`preloadImage`、`prefetchWhenIdle` |
 | `schedule` | 调度工具：`raf`、`waitFrames`、`rafThrottle`、`onRafLoop`、`whenIdle`、`createIdleQueue` |
@@ -459,6 +459,25 @@ const stop = onElementResize(chartContainer, ({ width, height }) => {
 
 - 回调参数为内容区尺寸（不含 padding / border）
 - 不支持 ResizeObserver 的环境返回 noop
+
+### onDelegate(root, type, selector, listener, options?)
+
+在根元素上进行事件委托：事件冒泡到 `root` 后按 `closest(selector)` 匹配实际目标。动态列表只绑定一次，子元素随便增删，新增项自动生效。
+
+```ts
+import { onDelegate } from "@huangqi_an/hqa-utils";
+
+const stop = onDelegate(document, "click", ".item", (event, item) => {
+  console.log("点击了", (item as HTMLElement).dataset.id);
+});
+
+stop(); // 组件卸载时取消
+```
+
+- 回调第二参数 `matched` 直接给出匹配到的元素（可能是 target 自身或其祖先），省去回调内再 `closest` 一次
+- `capture` 选项透传给原生监听，`focus` / `blur` 等不冒泡事件需传 `true`
+- 不穿透 Shadow DOM（冒泡出 shadow root 后 target 已被重定向），需要时请基于 `composedPath()` 自行实现
+- SSR 或 `root` 无效时返回 noop
 
 ### downloadFile(data, filename, mime?)
 
