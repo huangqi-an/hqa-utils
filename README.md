@@ -14,7 +14,7 @@
 
 | 模块 | 说明 |
 | --- | --- |
-| `async` | 异步工具：`sleep`、`runWithLimit`、`withTimeout`、`retry`、`pLimit` |
+| `async` | 异步工具：`sleep`、`runWithLimit`、`withTimeout`、`retry`、`pLimit`、`pollUntil` |
 | `client` | 客户端信息：`isBrowser`、`getUserAgent`、`parseUserAgent`、平台检测、`getClientInfo` |
 | `dom` | DOM 小件：`copyText`、`onElementVisible`、`onElementResize`、`downloadFile` |
 | `mouse` | 鼠标工具：`getMousePosition`、`onLongPress`、`onMouseIdle`、`isMouseSupported` |
@@ -83,6 +83,37 @@ limit.activeCount; // 正在执行的任务数
 limit.pendingCount; // 排队等待的任务数
 limit.clearQueue(); // 清空排队任务（正在执行的不受影响），被丢弃的 Promise 以 QueueClearedError reject
 ```
+
+### pollUntil(task, isDone?, options?)
+
+轮询：反复执行 `task`，直到 `isDone(result)` 为 `true` 时以最后一次结果 resolve。串行节拍（间隔从 task 完成后起算，不重叠请求），首次调用立即执行；超时抛 `TimeoutError`、次数用尽抛 `PollAttemptsExhaustedError`（错误均带尝试上下文）。
+
+```ts
+import { pollUntil } from "@huangqi_an/hqa-utils";
+
+// 轮询导出任务状态：每 2s 查一次，最多等 60s
+const result = await pollUntil(
+  () => fetch(`/api/tasks/${id}`).then((r) => r.json()),
+  (data) => data.status === "done",
+  { interval: 2000, timeout: 60_000 },
+);
+
+// 弱网下容忍偶发请求失败，间隔指数退避（1s → 2s → 4s，上限 8s）
+const config = await pollUntil(
+  () => fetchConfig(),
+  (data) => data !== null,
+  { interval: 1000, backoff: 2, maxInterval: 8000, tolerateErrors: true },
+);
+```
+
+| 选项 | 默认 | 说明 |
+| --- | --- | --- |
+| `interval` | `1000` | 轮询间隔毫秒数（指数退避的初始间隔） |
+| `timeout` | - | 总超时毫秒数，超时抛 `TimeoutError` |
+| `maxAttempts` | - | 最大尝试次数（含首次），用尽抛 `PollAttemptsExhaustedError` |
+| `backoff` | `1` | 指数退避倍率 |
+| `maxInterval` | - | 退避间隔上限毫秒数 |
+| `tolerateErrors` | `false` | task 抛错时是否忽略并继续轮询 |
 
 ### isBrowser() / getUserAgent()
 
