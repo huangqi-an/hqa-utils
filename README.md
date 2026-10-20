@@ -24,6 +24,8 @@
 | `storage` | 存储封装：`createStorage`（TTL 过期 / 命名空间 / 版本迁移 / SSR 安全） |
 | `timing` | 定时控制：`debounce`、`throttle`（leading/trailing/cancel/flush） |
 | `url` | 查询参数操作：`parseQuery`、`buildUrl`、`updateSearchParams`、`replaceQueryState` |
+| `page` | 页面可见性：`onVisibilityChange` 订阅、`whenDocumentVisible` 等待可见（SSR 安全） |
+| `scroll` | 滚动小件：`getScrollPercent` 进度查询、`smoothScrollTo` 平滑滚动（尊重减少动画偏好） |
 
 ## 用法
 
@@ -673,6 +675,72 @@ import { replaceQueryState } from "@huangqi_an/hqa-utils";
 // 当前 /list?tab=all&page=1
 replaceQueryState({ page: 2 });    // → /list?tab=all&page=2
 replaceQueryState({ page: null }); // → /list?tab=all
+```
+
+## page 页面可见性
+
+### onVisibilityChange(callback)
+
+订阅页面可见性变化（`visibilitychange`），**订阅时立即同步回调当前状态**（与 `onNetworkChange` 语义一致）。非浏览器环境返回 noop。
+
+```ts
+import { onVisibilityChange } from "@huangqi_an/hqa-utils";
+
+// 页面切走时暂停轮询，回来后恢复
+const stop = onVisibilityChange((visible) => {
+  if (visible) resumePolling();
+  else pausePolling();
+});
+stop(); // 取消订阅
+```
+
+### whenDocumentVisible()
+
+等待页面变为可见，返回 Promise：已可见时立即 resolve；隐藏时挂起到变为可见；非浏览器环境立即 resolve（避免服务端挂起）。
+
+```ts
+import { whenDocumentVisible } from "@huangqi_an/hqa-utils";
+
+// 把重活推迟到用户真正看向页面时
+await whenDocumentVisible();
+refreshData();
+```
+
+## scroll 滚动小件
+
+### getScrollPercent(target?)
+
+获取滚动进度百分比（0 ~ 100）。不传参数计算整页滚动，传元素计算其内部滚动。内容不超出可滚动区域时返回 100，非浏览器环境返回 0；越界值（iOS 回弹）已收敛。
+
+```ts
+import { getScrollPercent } from "@huangqi_an/hqa-utils";
+
+window.addEventListener(
+  "scroll",
+  () => {
+    bar.style.width = `${getScrollPercent()}%`;
+  },
+  { passive: true },
+);
+```
+
+### smoothScrollTo(target, options?)
+
+平滑滚动窗口或指定容器到目标位置。目标支持像素位置、元素、`"top"`、`"bottom"`；最终位置收敛在可滚动范围内。默认尊重系统"减少动画"偏好（命中 `prefers-reduced-motion` 时改为瞬时滚动），可用 `behavior` 覆盖。
+
+| 选项 | 默认 | 说明 |
+| --- | --- | --- |
+| `container` | - | 滚动容器元素，缺省时滚动整个窗口 |
+| `offset` | `0` | 附加偏移量（像素），固定头部时传负值扣除其高度 |
+| `behavior` | 自动 | 强制指定 `"smooth"` / `"auto"`，缺省时按减少动画偏好判断 |
+
+```ts
+import { smoothScrollTo } from "@huangqi_an/hqa-utils";
+
+smoothScrollTo("top");                      // 回到顶部
+smoothScrollTo(sectionEl, { offset: -80 }); // 滚到元素并扣除固定头部
+smoothScrollTo(600, { behavior: "auto" });  // 瞬时滚到 600px
+smoothScrollTo(bottomEl, { container: listEl }); // 在容器内滚动
 ```
 
 ## 开发
