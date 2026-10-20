@@ -6,3 +6,4 @@ export * from "./schedule/index.js";
 export * from "./storage/index.js";
 export * from "./preload/index.js";
 export * from "./timing/index.js";
+export * from "./device/index.js";
