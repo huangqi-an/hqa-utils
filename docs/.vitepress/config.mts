@@ -5,6 +5,7 @@ const modules = [
   { text: "client 客户端信息", link: "/modules/client" },
   { text: "device 设备感知", link: "/modules/device" },
   { text: "dom DOM 小件", link: "/modules/dom" },
+  { text: "monitor 白屏检测", link: "/modules/monitor" },
   { text: "mouse 鼠标", link: "/modules/mouse" },
   { text: "page 页面可见性与 URL", link: "/modules/page" },
   { text: "preload 资源预加载", link: "/modules/preload" },
