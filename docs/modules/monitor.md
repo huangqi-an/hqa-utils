@@ -1,11 +1,13 @@
 # monitor 页面健康监测
 
-白屏检测与数据上报：采样点检测原语、轮询监测、上报器。
+白屏检测、帧率与数据上报：采样点检测原语、轮询监测、上报器。
 
 | 导出 | 说明 |
 | --- | --- |
 | `isPageBlank(options?)` | 检测当前页面是否白屏（一次性） |
 | `onBlankScreen(callback, options?)` | 白屏轮询监测（连续计数防抖） |
+| `onFpsChange(callback, options?)` | 帧率持续监测（rAF 计数） |
+| `measureFps(options?)` | 一次性帧率测量（Promise） |
 | `createReporter(options)` | 数据上报器（批量 / 采样 / 卸载不丢） |
 
 ## isPageBlank(options?)
@@ -87,3 +89,42 @@ reporter.destroy(); // 页面退出前调用，尽力发完剩余
 - 发送策略：优先 `navigator.sendBeacon`（异步不阻塞、卸载时浏览器仍尽力送达），不可用或排队失败降级 `fetch` + `keepalive: true`
 - 边界：`sendBeacon` 与 `keepalive` 均有约 64KB 请求体限制，超大负载请拆分；`sendBeacon` 无响应，感知不到服务端错误
 - SSR 安全：`report` 静默丢弃、`flush` / `destroy` 空操作
+
+## onFpsChange(callback, options?)
+
+持续监测页面帧率（FPS）：基于 requestAnimationFrame 逐帧计数，每个采样窗口回调一次平均帧率。动画 / 游戏页面的卡顿监控原语，阈值判断（如 `fps < 30`）由调用方决定。
+
+```ts
+import { onFpsChange } from "@huangqi_an/hqa-utils";
+
+const stop = onFpsChange(({ fps, frames }) => {
+  if (fps < 30) reporter.report("卡顿", { fps, frames });
+});
+
+stop(); // 组件卸载时停止
+```
+
+| 选项 | 默认 | 说明 |
+| --- | --- | --- |
+| `interval` | `1000` | 采样窗口毫秒数 |
+
+- 回调参数 `{ fps, frames, elapsed }`：平均帧率（取整）、窗口内帧数、窗口实际耗时
+- 后台标签页（rAF 被暂停）或窗口内无帧时跳过结算，不上报无意义的 0
+- 内部复用 `schedule.onRafLoop`；SSR 返回 noop
+
+## measureFps(options?)
+
+一次性测量帧率：采样 `duration` 毫秒后 resolve 平均帧率，适合按需测量（重交互页面前后对比）而非挂机监测。
+
+```ts
+import { measureFps } from "@huangqi_an/hqa-utils";
+
+const sample = await measureFps({ duration: 1000 });
+if (sample && sample.fps < 30) reporter.report("卡顿", sample);
+```
+
+| 选项 | 默认 | 说明 |
+| --- | --- | --- |
+| `duration` | `1000` | 采样时长毫秒数 |
+
+- 内部基于 `onFpsChange`；SSR 环境 resolve `null` 不挂起

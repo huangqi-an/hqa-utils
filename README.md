@@ -20,7 +20,7 @@
 | `client` | 客户端信息：`isBrowser`、`getUserAgent`、`parseUserAgent`、平台检测、`getClientInfo` |
 | `device` | 设备感知：`onNetworkChange`、`getConnectionInfo`、`onMediaQueryChange`、`prefersDarkScheme`、`prefersReducedMotion` |
 | `dom` | DOM 小件：`copyText`、`onElementVisible`、`onElementResize`、`onDelegate`、`downloadFile` |
-| `monitor` | 页面健康监测：`isPageBlank` 白屏检测、`onBlankScreen` 白屏轮询监测、`createReporter` 数据上报 |
+| `monitor` | 页面健康监测：`isPageBlank` 白屏检测、`onBlankScreen` 白屏轮询监测、`onFpsChange`/`measureFps` 帧率、`createReporter` 数据上报 |
 | `mouse` | 鼠标工具：`getMousePosition`、`onLongPress`、`onMouseIdle`、`isMouseSupported` |
 | `preload` | 资源预加载：`preloadResource`、`preconnectTo`、`dnsPrefetch`、`preloadImage`、`prefetchWhenIdle` |
 | `schedule` | 调度工具：`raf`、`waitFrames`、`rafThrottle`、`onRafLoop`、`whenIdle`、`createIdleQueue` |
@@ -919,6 +919,45 @@ reporter.destroy(); // 页面退出前调用，尽力发完剩余
 - 发送策略：优先 `navigator.sendBeacon`（异步不阻塞、卸载时浏览器仍尽力送达），不可用或排队失败降级 `fetch` + `keepalive: true`
 - 边界：`sendBeacon` 与 `keepalive` 均有约 64KB 请求体限制，超大负载请拆分；`sendBeacon` 无响应，感知不到服务端错误
 - SSR 安全：`report` 静默丢弃、`flush` / `destroy` 空操作
+
+### onFpsChange(callback, options?)
+
+持续监测页面帧率（FPS）：基于 requestAnimationFrame 逐帧计数，每个采样窗口回调一次平均帧率。动画 / 游戏页面的卡顿监控原语，阈值判断（如 `fps < 30`）由调用方决定。
+
+| 选项 | 默认 | 说明 |
+| --- | --- | --- |
+| `interval` | `1000` | 采样窗口毫秒数 |
+
+```ts
+import { onFpsChange } from "@huangqi_an/hqa-utils";
+
+const stop = onFpsChange(({ fps, frames }) => {
+  if (fps < 30) reporter.report("卡顿", { fps, frames });
+});
+
+stop(); // 组件卸载时停止
+```
+
+- 回调参数 `{ fps, frames, elapsed }`：平均帧率（取整）、窗口内帧数、窗口实际耗时
+- 后台标签页（rAF 被暂停）或窗口内无帧时跳过结算，不上报无意义的 0
+- 内部复用 `schedule.onRafLoop`；SSR 返回 noop
+
+### measureFps(options?)
+
+一次性测量帧率：采样 `duration` 毫秒后 resolve 平均帧率，适合按需测量（重交互页面前后对比）而非挂机监测。
+
+| 选项 | 默认 | 说明 |
+| --- | --- | --- |
+| `duration` | `1000` | 采样时长毫秒数 |
+
+```ts
+import { measureFps } from "@huangqi_an/hqa-utils";
+
+const sample = await measureFps({ duration: 1000 });
+if (sample && sample.fps < 30) reporter.report("卡顿", sample);
+```
+
+- 内部基于 `onFpsChange`；SSR 环境 resolve `null` 不挂起
 
 ## 开发
 
