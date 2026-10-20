@@ -24,8 +24,8 @@
 | `storage` | 存储封装：`createStorage`（TTL 过期 / 命名空间 / 版本迁移 / SSR 安全） |
 | `timing` | 定时控制：`debounce`、`throttle`（leading/trailing/cancel/flush） |
 | `url` | 查询参数操作：`parseQuery`、`buildUrl`、`updateSearchParams`、`replaceQueryState` |
-| `page` | 页面可见性：`onVisibilityChange` 订阅、`whenDocumentVisible` 等待可见（SSR 安全） |
-| `scroll` | 滚动小件：`getScrollPercent` 进度查询、`smoothScrollTo` 平滑滚动、`onScrollNearBottom` 无限加载、`onScrollDirection` 方向监听 |
+| `page` | 页面可见性与 URL：`onVisibilityChange` 订阅、`whenDocumentVisible` 等待可见、`onUrlChange` 监听 URL 变化（SSR 安全） |
+| `scroll` | 滚动小件：`getScrollPercent` 进度查询、`smoothScrollTo` 平滑滚动、`onScrollNearBottom` 无限加载、`onScrollDirection` 方向监听、`onScrollStop` 停止监听 |
 
 ## 用法
 
@@ -706,6 +706,21 @@ await whenDocumentVisible();
 refreshData();
 ```
 
+### onUrlChange(callback)
+
+订阅 URL 变化，**SPA 路由跳转（`pushState` / `replaceState`）与浏览器前进后退（`popstate`）都能监听到**。订阅时立即回调当前 URL；URL 实际未变化时不重复回调。内部对 history 方法做引用计数式包装，最后一个订阅者取消时还原。
+
+```ts
+import { onUrlChange } from "@huangqi_an/hqa-utils";
+
+// SPA 里同步更新页面标题 / 埋点上报
+const stop = onUrlChange((url) => {
+  document.title = titles[url] ?? "默认标题";
+  trackPageView(url);
+});
+stop(); // 取消订阅
+```
+
 ## scroll 滚动小件
 
 ### getScrollPercent(target?)
@@ -787,6 +802,22 @@ onScrollDirection(
   },
   { tolerance: 8 },
 );
+```
+
+### onScrollStop(target, callback, options?)
+
+监听滚动停止：滚动事件静默 `delay` 毫秒后触发一次回调。适合"滚动停下后再做计算"：懒加载图片、显示回到顶部按钮、惯性滚动结束后做对齐。
+
+| 选项 | 默认 | 说明 |
+| --- | --- | --- |
+| `delay` | `150` | 判定停止的静默时长（毫秒） |
+
+```ts
+import { onScrollStop } from "@huangqi_an/hqa-utils";
+
+// 惯性滚动结束后显示悬浮操作按钮
+const stop = onScrollStop(window, () => showFab(), { delay: 200 });
+stop(); // 取消订阅（会同时清掉挂起未触发的回调）
 ```
 
 ## 开发
