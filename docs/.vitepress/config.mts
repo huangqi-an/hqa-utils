@@ -11,6 +11,7 @@ const modules = [
   { text: "preload 资源预加载", link: "/modules/preload" },
   { text: "schedule 调度", link: "/modules/schedule" },
   { text: "scroll 滚动小件", link: "/modules/scroll" },
+  { text: "security 安全小件", link: "/modules/security" },
   { text: "storage 存储", link: "/modules/storage" },
   { text: "timing 定时控制", link: "/modules/timing" },
   { text: "url 查询参数", link: "/modules/url" },
