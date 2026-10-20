@@ -6,6 +6,8 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 [![codecov](https://codecov.io/gh/huangqi-an/hqa-utils/graph/badge.svg)](https://codecov.io/gh/huangqi-an/hqa-utils)
 
+📖 **[在线文档](https://huangqi-an.github.io/hqa-utils/)** —— 12 个模块的完整 API 用法与示例
+
 个人 TypeScript 工具库。
 
 参与贡献请先阅读 [CONTRIBUTING.md](./CONTRIBUTING.md)。
