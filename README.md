@@ -20,7 +20,7 @@
 | `client` | 客户端信息：`isBrowser`、`getUserAgent`、`parseUserAgent`、平台检测、`getClientInfo` |
 | `device` | 设备感知：`onNetworkChange`、`getConnectionInfo`、`onMediaQueryChange`、`prefersDarkScheme`、`prefersReducedMotion` |
 | `dom` | DOM 小件：`copyText`、`onElementVisible`、`onElementResize`、`onDelegate`、`downloadFile` |
-| `monitor` | 页面健康监测：`isPageBlank` 白屏检测、`onBlankScreen` 白屏轮询监测 |
+| `monitor` | 页面健康监测：`isPageBlank` 白屏检测、`onBlankScreen` 白屏轮询监测、`createReporter` 数据上报 |
 | `mouse` | 鼠标工具：`getMousePosition`、`onLongPress`、`onMouseIdle`、`isMouseSupported` |
 | `preload` | 资源预加载：`preloadResource`、`preconnectTo`、`dnsPrefetch`、`preloadImage`、`prefetchWhenIdle` |
 | `schedule` | 调度工具：`raf`、`waitFrames`、`rafThrottle`、`onRafLoop`、`whenIdle`、`createIdleQueue` |
@@ -882,6 +882,43 @@ const stop = onBlankScreen((result) => {
 
 stop(); // 组件卸载时停止
 ```
+
+### createReporter(options)
+
+数据上报器：批量合并 + 采样 + `sendBeacon` 优先 / `fetch(keepalive)` 降级。解决裸用上报 API 的三个痛点——页面卸载时 `fetch` 被浏览器掐断丢数据、JSON 直发触发 CORS 预检、高频埋点无批量。
+
+| 选项 | 默认 | 说明 |
+| --- | --- | --- |
+| `endpoint` | - | 采集端点 URL（POST 接收 JSON 数组） |
+| `flushInterval` | `5000` | 自动 flush 间隔（毫秒），`0` 关闭定时 flush |
+| `maxBatchSize` | `20` | 队列达到多少条立即发送 |
+| `sampleRate` | `1` | 采样率 0~1，入队时判定，未采样直接丢弃 |
+| `retries` | `0` | fetch 降级路径的重试次数（`sendBeacon` 无响应不重试） |
+| `contentType` | `"application/json"` | 请求体类型；采集端支持裸文本读 JSON 时可用 `text/plain;charset=UTF-8` 规避 CORS 预检 |
+| `headers` | - | 附加请求头（仅 fetch 降级路径携带，`sendBeacon` 无法自定义头） |
+| `commonData` | - | 合并进每条事件的公共字段（应用 ID、版本、用户标识等） |
+| `flushOnHide` | `true` | 页面进入后台或卸载时自动 flush（防丢数据的关键） |
+| `onError` | - | fetch 重试耗尽仍失败时回调，携带丢失的事件供兜底 |
+
+```ts
+import { createReporter, isPageBlank } from "@huangqi_an/hqa-utils";
+
+const reporter = createReporter({
+  endpoint: "/api/collect",
+  commonData: { appId: "web", version: "1.0.0" },
+});
+
+// 与白屏检测配合
+const result = isPageBlank();
+if (result.blank) reporter.report("白屏", result);
+
+reporter.report("js-error", { message: "..." });
+reporter.destroy(); // 页面退出前调用，尽力发完剩余
+```
+
+- 发送策略：优先 `navigator.sendBeacon`（异步不阻塞、卸载时浏览器仍尽力送达），不可用或排队失败降级 `fetch` + `keepalive: true`
+- 边界：`sendBeacon` 与 `keepalive` 均有约 64KB 请求体限制，超大负载请拆分；`sendBeacon` 无响应，感知不到服务端错误
+- SSR 安全：`report` 静默丢弃、`flush` / `destroy` 空操作
 
 ## 开发
 

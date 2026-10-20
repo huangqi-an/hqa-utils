@@ -1,11 +1,12 @@
 # monitor 页面健康监测
 
-白屏检测：采样点检测原语与轮询监测。
+白屏检测与数据上报：采样点检测原语、轮询监测、上报器。
 
 | 导出 | 说明 |
 | --- | --- |
 | `isPageBlank(options?)` | 检测当前页面是否白屏（一次性） |
 | `onBlankScreen(callback, options?)` | 白屏轮询监测（连续计数防抖） |
+| `createReporter(options)` | 数据上报器（批量 / 采样 / 卸载不丢） |
 
 ## isPageBlank(options?)
 
@@ -49,3 +50,40 @@ stop(); // 组件卸载时停止
 | `immediate` | `true` | 订阅时立即做首次检测 |
 
 - 非浏览器环境（SSR）返回 noop
+
+## createReporter(options)
+
+数据上报器：批量合并 + 采样 + `sendBeacon` 优先 / `fetch(keepalive)` 降级。解决裸用上报 API 的三个痛点——页面卸载时 `fetch` 被浏览器掐断丢数据、JSON 直发触发 CORS 预检、高频埋点无批量。
+
+```ts
+import { createReporter, isPageBlank } from "@huangqi_an/hqa-utils";
+
+const reporter = createReporter({
+  endpoint: "/api/collect",
+  commonData: { appId: "web", version: "1.0.0" },
+});
+
+// 与白屏检测配合
+const result = isPageBlank();
+if (result.blank) reporter.report("白屏", result);
+
+reporter.report("js-error", { message: "..." });
+reporter.destroy(); // 页面退出前调用，尽力发完剩余
+```
+
+| 选项 | 默认 | 说明 |
+| --- | --- | --- |
+| `endpoint` | - | 采集端点 URL（POST 接收 JSON 数组） |
+| `flushInterval` | `5000` | 自动 flush 间隔（毫秒），`0` 关闭定时 flush |
+| `maxBatchSize` | `20` | 队列达到多少条立即发送 |
+| `sampleRate` | `1` | 采样率 0~1，入队时判定，未采样直接丢弃 |
+| `retries` | `0` | fetch 降级路径的重试次数（`sendBeacon` 无响应不重试） |
+| `contentType` | `"application/json"` | 请求体类型；可用 `text/plain;charset=UTF-8` 规避 CORS 预检 |
+| `headers` | - | 附加请求头（仅 fetch 降级路径携带） |
+| `commonData` | - | 合并进每条事件的公共字段 |
+| `flushOnHide` | `true` | 页面进入后台或卸载时自动 flush（防丢数据的关键） |
+| `onError` | - | fetch 重试耗尽仍失败时回调，携带丢失的事件 |
+
+- 发送策略：优先 `navigator.sendBeacon`（异步不阻塞、卸载时浏览器仍尽力送达），不可用或排队失败降级 `fetch` + `keepalive: true`
+- 边界：`sendBeacon` 与 `keepalive` 均有约 64KB 请求体限制，超大负载请拆分；`sendBeacon` 无响应，感知不到服务端错误
+- SSR 安全：`report` 静默丢弃、`flush` / `destroy` 空操作
