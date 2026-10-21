@@ -12,3 +12,4 @@ export * from "./page/index.js";
 export * from "./scroll/index.js";
 export * from "./monitor/index.js";
 export * from "./security/index.js";
+export * from "./loader/index.js";
