@@ -10,6 +10,7 @@ const modules = [
   { text: "monitor 白屏检测", link: "/modules/monitor" },
   { text: "mouse 鼠标", link: "/modules/mouse" },
   { text: "page 页面可见性与 URL", link: "/modules/page" },
+  { text: "permission 权限查询", link: "/modules/permission" },
   { text: "preload 资源预加载", link: "/modules/preload" },
   { text: "schedule 调度", link: "/modules/schedule" },
   { text: "scroll 滚动小件", link: "/modules/scroll" },

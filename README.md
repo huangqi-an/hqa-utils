@@ -30,6 +30,7 @@
 | `timing` | 定时控制：`debounce`、`throttle`（leading/trailing/cancel/flush） |
 | `url` | 查询参数操作：`parseQuery`、`buildUrl`、`updateSearchParams`、`replaceQueryState` |
 | `page` | 页面可见性与 URL：`onVisibilityChange` 订阅、`whenDocumentVisible` 等待可见、`onUrlChange` 监听 URL 变化（SSR 安全） |
+| `permission` | 权限查询：`queryPermission` 权限状态、`onPermissionChange` 权限变化监听 |
 | `scroll` | 滚动小件：`getScrollPercent` 进度查询、`smoothScrollTo` 平滑滚动、`onScrollNearBottom` 无限加载、`onScrollDirection` 方向监听、`onScrollStop` 停止监听 |
 | `security` | 安全小件：`getCspNonce` 读取 CSP nonce、`onCspViolation` CSP 违规监听 |
 
@@ -1064,6 +1065,27 @@ setCssVars(document.documentElement, {
 - `getCssVar` 读的是计算后的生效值（含级联与继承）；`setCssVars` 写内联样式
 - 变量名 `--` 前缀可省略
 - SSR 安全：读取返回 `null`，写入为空操作
+
+### queryPermission(name) / onPermissionChange(name, callback)
+
+浏览器权限状态查询与变化监听（Permissions API）。调用定位 / 通知 / 摄像头 / 剪贴板等敏感 API 前先查状态：`granted` 直接用、`denied` 引导去设置开启（浏览器不会再弹窗）、`prompt` 此时调用才会弹授权框。
+
+```ts
+import { queryPermission, onPermissionChange } from "@huangqi_an/hqa-utils";
+
+const state = await queryPermission("geolocation");
+if (state === "granted") locate();
+else if (state === "denied") showSetupGuide();
+else requestLocate();
+
+// 跟随变化：denied → 展示引导，用户改完回来自动切到可用
+const stop = onPermissionChange("geolocation", (s) => banner.update(s));
+stop(); // 组件卸载时取消
+```
+
+- 未知权限名（各浏览器支持不一，如 Firefox 无 camera）原生抛 TypeError——已捕获降级：查询返回 `null`，监听静默不回调，可放心并发查询
+- 订阅时先回调一次当前状态（与 `onNetworkChange` 语义一致）
+- SSR 返回 `null` / noop
 
 ## 开发
 
