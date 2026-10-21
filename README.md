@@ -18,6 +18,7 @@
 | --- | --- |
 | `async` | 异步工具：`sleep`、`runWithLimit`、`withTimeout`、`retry`、`pLimit`、`pollUntil` |
 | `client` | 客户端信息：`isBrowser`、`getUserAgent`、`parseUserAgent`、平台检测、`getClientInfo` |
+| `css` | CSS 变量操作：`getCssVar` 读取（trim / 未定义 null）、`setCssVars` 批量写入（null 即删） |
 | `device` | 设备感知：`onNetworkChange`、`getConnectionInfo`、`onMediaQueryChange`、`prefersDarkScheme`、`prefersReducedMotion` |
 | `dom` | DOM 小件：`copyText`、`onElementVisible`、`onElementResize`、`onDelegate`、`downloadFile` |
 | `loader` | 资源加载：`loadScript`、`loadStyle`（去重缓存/失败可重试）、`waitForElement` 等待元素出现 |
@@ -1041,6 +1042,28 @@ const widget = await waitForElement(".third-party-widget", { timeout: 5000 });
 ```
 
 - SSR resolve `null`，不挂起服务端
+
+### getCssVar(el, name) / setCssVars(el, vars)
+
+CSS 自定义属性（CSS 变量）的读写，处理 `getComputedStyle` 的三个坑：返回值带前导空格（已 trim）、未定义与空串不可分（未设置返回 `null`）、变量名必须 `--` 开头（自动补全）。
+
+```ts
+import { getCssVar, setCssVars } from "@huangqi_an/hqa-utils";
+
+const color = getCssVar(document.documentElement, "theme-color"); // "color" 即 "--color"
+if (color) paint(color);
+
+// 主题切换：一次换一组变量，值为 null 表示删除
+setCssVars(document.documentElement, {
+  "--bg": "#1a1a2e",
+  "--fg": "#eaeaea",
+  "--legacy-accent": null,
+});
+```
+
+- `getCssVar` 读的是计算后的生效值（含级联与继承）；`setCssVars` 写内联样式
+- 变量名 `--` 前缀可省略
+- SSR 安全：读取返回 `null`，写入为空操作
 
 ## 开发
 

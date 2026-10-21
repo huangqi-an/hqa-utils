@@ -3,6 +3,7 @@ import { defineConfig } from "vitepress";
 const modules = [
   { text: "async 异步", link: "/modules/async" },
   { text: "client 客户端信息", link: "/modules/client" },
+  { text: "css CSS 变量", link: "/modules/css" },
   { text: "device 设备感知", link: "/modules/device" },
   { text: "dom DOM 小件", link: "/modules/dom" },
   { text: "loader 资源加载", link: "/modules/loader" },
