@@ -30,7 +30,7 @@
 | `timing` | 定时控制：`debounce`、`throttle`（leading/trailing/cancel/flush） |
 | `url` | 查询参数操作：`parseQuery`、`buildUrl`、`updateSearchParams`、`replaceQueryState` |
 | `page` | 页面可见性与 URL：`onVisibilityChange` 订阅、`whenDocumentVisible` 等待可见、`onUrlChange` 监听 URL 变化（SSR 安全） |
-| `permission` | 权限查询：`queryPermission` 权限状态、`onPermissionChange` 权限变化监听 |
+| `permission` | 权限查询：`queryPermission` 权限状态、`onPermissionChange` 权限变化监听、`requestNotificationPermission` 申请通知授权 |
 | `scroll` | 滚动小件：`getScrollPercent` 进度查询、`smoothScrollTo` 平滑滚动、`onScrollNearBottom` 无限加载、`onScrollDirection` 方向监听、`onScrollStop` 停止监听 |
 | `security` | 安全小件：`getCspNonce` 读取 CSP nonce、`onCspViolation` CSP 违规监听 |
 
@@ -1086,6 +1086,28 @@ stop(); // 组件卸载时取消
 - 未知权限名（各浏览器支持不一，如 Firefox 无 camera）原生抛 TypeError——已捕获降级：查询返回 `null`，监听静默不回调，可放心并发查询
 - 订阅时先回调一次当前状态（与 `onNetworkChange` 语义一致）
 - SSR 返回 `null` / noop
+
+### requestNotificationPermission()
+
+申请通知授权（`Notification.requestPermission()` 的 Promise 封装）。注意：**只有通知是"纯申请"语义**——定位 / 摄像头 / 剪贴板的申请动作就是业务 API 调用本身（如 `getCurrentPosition` 既弹窗又给数据），不需要单独的申请封装。
+
+```ts
+import { requestNotificationPermission, onPermissionChange } from "@huangqi_an/hqa-utils";
+
+const result = await requestNotificationPermission();
+if (result === "granted") {
+  new Notification("已开启提醒");
+} else if (result === "default") {
+  // 用户关掉了弹窗，别打扰，留个入口就好
+}
+
+// 跟随后续变化（用户可能随时在设置里改主意）
+onPermissionChange("notifications", (state) => syncBanner(state));
+```
+
+- 已授权 / 已拒绝时再次调用**不会弹窗**，直接返回当前状态
+- 结果为 `"granted"` / `"denied"` / `"default"`（用户关掉弹窗未选择）
+- 旧版 Safari 回调式签名已兼容；SSR 返回 `null`
 
 ## 开发
 
