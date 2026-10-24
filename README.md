@@ -21,6 +21,7 @@
 | `css` | CSS 变量操作：`getCssVar` 读取（trim / 未定义 null）、`setCssVars` 批量写入（null 即删） |
 | `device` | 设备感知：`onNetworkChange`、`getConnectionInfo`、`onMediaQueryChange`、`prefersDarkScheme`、`prefersReducedMotion` |
 | `dom` | DOM 小件：`copyText`、`onElementVisible`、`onElementResize`、`onDelegate`、`downloadFile` |
+| `fetch` | fetch 辅助：`withDownloadProgress` 下载进度（流式聚合） |
 | `loader` | 资源加载：`loadScript`、`loadStyle`（去重缓存/失败可重试）、`waitForElement` 等待元素出现 |
 | `monitor` | 页面健康监测：`isPageBlank` 白屏检测、`onBlankScreen` 白屏轮询监测、`onFpsChange`/`measureFps` 帧率、`createReporter` 数据上报 |
 | `mouse` | 鼠标工具：`getMousePosition`、`onLongPress`、`onMouseIdle`、`isMouseSupported` |
@@ -1108,6 +1109,29 @@ onPermissionChange("notifications", (state) => syncBanner(state));
 - 已授权 / 已拒绝时再次调用**不会弹窗**，直接返回当前状态
 - 结果为 `"granted"` / `"denied"` / `"default"`（用户关掉弹窗未选择）
 - 旧版 Safari 回调式签名已兼容；SSR 返回 `null`
+
+### withDownloadProgress(response, onProgress?)
+
+fetch 下载进度：fetch 本身没有进度事件（那是 XHR 的能力），下载进度只能靠 `response.body`（ReadableStream）逐块读取——本函数封装这段样板，接收 `fetch` 返回的 `Response`，流式聚合并回调进度，最终 resolve `Blob`。
+
+```ts
+import { withDownloadProgress } from "@huangqi_an/hqa-utils";
+
+const res = await fetch("/large-file.zip");
+if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+const blob = await withDownloadProgress(res, ({ percent }) => {
+  bar.update(percent ?? 0);
+});
+
+// blob 可直接触发保存
+const url = URL.createObjectURL(blob);
+```
+
+- 进度 `{ loaded, total, percent }`：`total` 来自 `Content-Length`（chunked 响应缺失时为 `null`，只报 `loaded`）
+- **gzip 口径陷阱已处理**：`Content-Length` 是压缩后尺寸、流读到的是解压后字节，两者不一致会让进度超 100%——`percent` 已收敛 ≤ 100（`loaded` 保持真实值）
+- 不校验 `response.ok`（fetch 惯例，调用方决定）；中断下载用 fetch 的 `AbortSignal`，读流失败会 reject
+- 上传进度 fetch 做不了（平台限制），大文件上传的正确姿势是 XHR/axios 分片
 
 ## 开发
 

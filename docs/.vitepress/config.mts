@@ -6,6 +6,7 @@ const modules = [
   { text: "css CSS 变量", link: "/modules/css" },
   { text: "device 设备感知", link: "/modules/device" },
   { text: "dom DOM 小件", link: "/modules/dom" },
+  { text: "fetch 辅助", link: "/modules/fetch" },
   { text: "loader 资源加载", link: "/modules/loader" },
   { text: "monitor 白屏检测", link: "/modules/monitor" },
   { text: "mouse 鼠标", link: "/modules/mouse" },
