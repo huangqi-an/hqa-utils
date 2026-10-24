@@ -15,8 +15,8 @@ export interface DownloadProgress {
  * 最终 resolve 聚合完成的 `Blob`。
  *
  * fetch 本身没有进度事件（那是 XHR 的能力），下载进度只能靠
- * `response.body`（ReadableStream）逐块读取。本函数封装这段样板，
- * 并处理两个真实的坑：
+ * `response.body`（ReadableStream）逐块读取。本函数用 TransformStream
+ * 在管道中计数，并处理两个真实的坑：
  * - **无 Content-Length**（chunked 响应）→ `total` / `percent` 为 `null`，只报 `loaded`
  * - **gzip 压缩陷阱**：`Content-Length` 是压缩后尺寸，流读到的是解压后字节，
  *   两者口径不同会导致进度超 100% → `percent` 已收敛到 ≤ 100（`loaded` 保持真实值）
@@ -66,19 +66,16 @@ export async function withDownloadProgress(
     return new Blob([], { type: response.headers.get("Content-Type") ?? "" });
   }
 
-  const reader = response.body.getReader();
-  const chunks: BlobPart[] = [];
   let loaded = 0;
-
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    if (value) {
-      chunks.push(value);
-      loaded += value.byteLength;
+  const counter = new TransformStream<Uint8Array, Uint8Array>({
+    transform(chunk, controller) {
+      loaded += chunk.byteLength;
       report(loaded);
-    }
-  }
+      controller.enqueue(chunk); // 原样透传
+    },
+  });
 
-  return new Blob(chunks, { type: response.headers.get("Content-Type") ?? "" });
+  return new Response(response.body.pipeThrough(counter), {
+    headers: { "Content-Type": response.headers.get("Content-Type") ?? "" },
+  }).blob();
 }
