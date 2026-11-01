@@ -22,6 +22,7 @@ const blob = await withDownloadProgress(res, ({ percent }) => {
 ```
 
 - 进度 `{ loaded, total, percent }`：`total` 来自 `Content-Length`（chunked 响应缺失时为 `null`，只报 `loaded`）
+- **总长度来源可定制**（第三参 `options`）：后端把真实大小放在自定义头时传 `totalHeader: "X-Total-Length"`；total 不在任何响应头里（分片场景前端自己算好了）直接传 `total: file.size`，优先级高于响应头
 - **gzip 口径陷阱已处理**：`Content-Length` 是压缩后尺寸、流读到的是解压后字节，两者不一致会让进度超 100%——`percent` 已收敛 ≤ 100（`loaded` 保持真实值）
 - 不校验 `response.ok`（fetch 惯例，调用方决定）；中断下载用 fetch 的 `AbortSignal`，读流失败会 reject
 - 上传进度 fetch 做不了（平台限制），大文件上传的正确姿势是 XHR/axios 分片
