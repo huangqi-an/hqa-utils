@@ -71,6 +71,46 @@ describe("withDownloadProgress（fetch 下载进度）", () => {
     expect(last.percent).toBe(100);
   });
 
+  it("totalHeader 自定义：从指定响应头读取总长度", async () => {
+    const onProgress = vi.fn();
+    const blob = await withDownloadProgress(
+      makeResponse(["hello"], { "X-Total-Length": "5" }),
+      onProgress,
+      { totalHeader: "X-Total-Length" },
+    );
+
+    expect(await blob.text()).toBe("hello");
+    const last = onProgress.mock.calls.at(-1)![0] as DownloadProgress;
+    expect(last.total).toBe(5);
+    expect(last.percent).toBe(100);
+  });
+
+  it("total 显式数值优先于响应头", async () => {
+    const onProgress = vi.fn();
+    const blob = await withDownloadProgress(
+      makeResponse(["hello"], { "Content-Length": "999" }),
+      onProgress,
+      { total: 5 },
+    );
+
+    expect(await blob.text()).toBe("hello");
+    const last = onProgress.mock.calls.at(-1)![0] as DownloadProgress;
+    expect(last.total).toBe(5);
+    expect(last.percent).toBe(100);
+  });
+
+  it("totalHeader 指定的头不存在时 total 降级为 null", async () => {
+    const onProgress = vi.fn();
+    await withDownloadProgress(makeResponse(["hi"]), onProgress, {
+      totalHeader: "X-Not-Exist",
+    });
+
+    const p = onProgress.mock.calls.at(-1)![0] as DownloadProgress;
+    expect(p.total).toBeNull();
+    expect(p.percent).toBeNull();
+    expect(p.loaded).toBe(2);
+  });
+
   it("body 为 null（204）时 resolve 空 Blob", async () => {
     const onProgress = vi.fn();
     const blob = await withDownloadProgress(new Response(null, { status: 204 }), onProgress);

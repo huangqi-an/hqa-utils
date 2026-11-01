@@ -11,6 +11,22 @@ export interface DownloadProgress {
 }
 
 /**
+ * withDownloadProgress 的配置项。
+ */
+export interface WithDownloadProgressOptions {
+  /**
+   * 从哪个响应头读取总字节数，默认 `"Content-Length"`。
+   * 后端把真实文件大小放在自定义头（如 `"X-Total-Length"`）时指定它。
+   */
+  totalHeader?: string;
+  /**
+   * 直接指定总字节数，优先级高于 `totalHeader`。
+   * total 不在任何响应头里的场景（分片下载前端自己算好了）用这个。
+   */
+  total?: number;
+}
+
+/**
  * 以流式方式消费一个 fetch Response 的 body，并通过回调报告下载进度，
  * 最终 resolve 聚合完成的 `Blob`。
  *
@@ -29,6 +45,7 @@ export interface DownloadProgress {
  *
  * @param response fetch 返回的 Response
  * @param onProgress 每收到一个数据块时回调一次
+ * @param options 配置项（总长度的来源）
  * @returns 聚合完成的 Blob（Content-Type 沿用响应头）
  *
  * @example
@@ -42,14 +59,31 @@ export interface DownloadProgress {
  *
  * saveAs(blob, "large-file.zip");
  * ```
+ *
+ * @example
+ * ```ts
+ * // 总长度不在 Content-Length：后端自定义头
+ * withDownloadProgress(res, onProgress, { totalHeader: "X-Total-Length" });
+ *
+ * // total 根本不在响应头里（分片场景前端自己算好了）：直接传数值
+ * withDownloadProgress(res, onProgress, { total: file.size });
+ * ```
  */
 export async function withDownloadProgress(
   response: Response,
   onProgress?: (progress: DownloadProgress) => void,
+  options?: WithDownloadProgressOptions,
 ): Promise<Blob> {
-  const lengthHeader = response.headers.get("Content-Length");
-  const parsed = lengthHeader === null ? NaN : Number(lengthHeader);
-  const total = Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+  const { totalHeader = "Content-Length", total: explicitTotal } = options ?? {};
+
+  let total: number | null = null;
+  if (typeof explicitTotal === "number" && Number.isFinite(explicitTotal) && explicitTotal >= 0) {
+    total = explicitTotal; // 显式数值优先（total 不在响应头里的场景）
+  } else {
+    const lengthHeader = response.headers.get(totalHeader);
+    const parsed = lengthHeader === null ? NaN : Number(lengthHeader);
+    total = Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+  }
 
   const report = (loaded: number): void => {
     if (!onProgress) return;
