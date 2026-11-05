@@ -26,6 +26,7 @@
 | `monitor` | 页面健康监测：`isPageBlank` 白屏检测、`onBlankScreen` 白屏轮询监测、`onFpsChange`/`measureFps` 帧率、`createReporter` 数据上报 |
 | `mouse` | 鼠标工具：`getMousePosition`、`onLongPress`、`onMouseIdle`、`isMouseSupported` |
 | `preload` | 资源预加载：`preloadResource`、`preconnectTo`、`dnsPrefetch`、`preloadImage`、`prefetchWhenIdle` |
+| `random` | 随机 ID：`randomId`（加密熵源、不限 secure context、可定制长度与字母表） |
 | `schedule` | 调度工具：`raf`、`waitFrames`、`rafThrottle`、`onRafLoop`、`whenIdle`、`createIdleQueue` |
 | `storage` | 存储封装：`createStorage`（TTL 过期 / 命名空间 / 版本迁移 / SSR 安全） |
 | `timing` | 定时控制：`debounce`、`throttle`（leading/trailing/cancel/flush） |
@@ -1133,6 +1134,22 @@ const url = URL.createObjectURL(blob);
 - **gzip 口径陷阱已处理**：`Content-Length` 是压缩后尺寸、流读到的是解压后字节，两者不一致会让进度超 100%——`percent` 已收敛 ≤ 100（`loaded` 保持真实值）
 - 不校验 `response.ok`（fetch 惯例，调用方决定）；中断下载用 fetch 的 `AbortSignal`，读流失败会 reject
 - 上传进度 fetch 做不了（平台限制），大文件上传的正确姿势是 XHR/axios 分片
+
+### randomId(size?, alphabet?)
+
+生成随机唯一 ID。基于 `crypto.getRandomValues`——**与 `crypto.randomUUID` 不同，不要求 secure context**，HTTP 环境同样可用，Node 18+ SSR 亦内置。默认 21 字符、64 进制、约 126 bits 熵（与 nanoid 同规格），签名也一致。
+
+```ts
+import { randomId } from "@huangqi_an/hqa-utils";
+
+randomId();          // "V1StGXR8_Z5jdHi6B-myT"（21 字符）
+randomId(8);         // 短 ID："ND-k0Yk2"
+randomId(6, "01");   // 二进制串："011010"
+```
+
+- 默认字母表 64 个 URL-safe 字符（6-bit 掩码完美无偏采样）；自定义字母表（2~256 字符）自动走掩码 + 拒绝采样，无 modulo bias
+- 随机性来自加密级熵源；注意**不是** UUID 格式，需要标准 UUID 时用 `crypto.randomUUID()`
+- 环境缺少 `crypto.getRandomValues` 时抛错，不静默降级 `Math.random`（避免可预测 ID 被误用于安全场景）
 
 ## 开发
 
