@@ -26,7 +26,7 @@
 | `monitor` | 页面健康监测：`isPageBlank` 白屏检测、`onBlankScreen` 白屏轮询监测、`onFpsChange`/`measureFps` 帧率、`createReporter` 数据上报 |
 | `mouse` | 鼠标工具：`getMousePosition`、`onLongPress`、`onMouseIdle`、`isMouseSupported` |
 | `preload` | 资源预加载：`preloadResource`、`preconnectTo`、`dnsPrefetch`、`preloadImage`、`prefetchWhenIdle` |
-| `random` | 随机 ID：`randomId`（加密熵源、不限 secure context、可定制长度与字母表） |
+| `random` | 随机 ID：`randomId`（加密熵源、不限 secure context）、`uuid`（UUID v4 全环境生成） |
 | `schedule` | 调度工具：`raf`、`waitFrames`、`rafThrottle`、`onRafLoop`、`whenIdle`、`createIdleQueue` |
 | `storage` | 存储封装：`createStorage`（TTL 过期 / 命名空间 / 版本迁移 / SSR 安全） |
 | `timing` | 定时控制：`debounce`、`throttle`（leading/trailing/cancel/flush） |
@@ -1135,21 +1135,33 @@ const url = URL.createObjectURL(blob);
 - 不校验 `response.ok`（fetch 惯例，调用方决定）；中断下载用 fetch 的 `AbortSignal`，读流失败会 reject
 - 上传进度 fetch 做不了（平台限制），大文件上传的正确姿势是 XHR/axios 分片
 
-### randomId(size?, alphabet?)
+### randomId(size?, alphabet?) / uuid()
 
-生成随机唯一 ID。基于 `crypto.getRandomValues`——**与 `crypto.randomUUID` 不同，不要求 secure context**，HTTP 环境同样可用，Node 18+ SSR 亦内置。默认 21 字符、64 进制、约 126 bits 熵（与 nanoid 同规格），签名也一致。
+两个随机 ID 生成器，按格式需求选择：
+
+**`randomId`**——短 ID（21 字符 URL-safe，约 126 bits 熵），基于 `crypto.getRandomValues`——**与 `crypto.randomUUID` 不同，不要求 secure context**，HTTP 环境同样可用，Node 18+ SSR 亦内置。
 
 ```ts
 import { randomId } from "@huangqi_an/hqa-utils";
 
-randomId();          // "V1StGXR8_Z5jdHi6B-myT"（21 字符）
+randomId();          // "tV0gGXR8_Z5jdHi6B-myT"
 randomId(8);         // 短 ID："ND-k0Yk2"
 randomId(6, "01");   // 二进制串："011010"
 ```
 
-- 默认字母表 64 个 URL-safe 字符（6-bit 掩码完美无偏采样）；自定义字母表（2~256 字符）自动走掩码 + 拒绝采样，无 modulo bias
-- 随机性来自加密级熵源；注意**不是** UUID 格式，需要标准 UUID 时用 `crypto.randomUUID()`
+- 默认字母表为 base64url 标准 64 字符（6-bit 掩码完美无偏采样，已导出 `DEFAULT_ALPHABET`）；自定义字母表（2~256 字符）自动走掩码 + 拒绝采样，无 modulo bias
 - 环境缺少 `crypto.getRandomValues` 时抛错，不静默降级 `Math.random`（避免可预测 ID 被误用于安全场景）
+
+**`uuid`**——UUID v4 格式（36 字符带连字符），三级降级且**每级格式恒定**：原生 `crypto.randomUUID` → `getRandomValues` 按 RFC 4122 手拼（HTTP 可用）→ `Math.random` 模板兜底（熵弱，不可用于安全场景）。
+
+```ts
+import { uuid } from "@huangqi_an/hqa-utils";
+
+// requestId、列表 key 等无安全要求场景
+fetch("/api/data", { headers: { "X-Request-Id": uuid() } });
+```
+
+- 需要标准 UUID 格式（如数据库主键约定）时用它；`secure context` 之外的 `crypto.randomUUID` 直接不可用，本函数补上缺口
 
 ## 开发
 
