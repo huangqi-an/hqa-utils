@@ -35,6 +35,10 @@ import { uuid } from "@huangqi_an/hqa-utils";
 
 // requestId、列表 key 等无安全要求场景
 fetch("/api/data", { headers: { "X-Request-Id": uuid() } });
+
+// ID 参与安全决策：跳过 Math.random 兜底，缺 crypto 时抛错
+const sessionId = uuid({ secure: true });
 ```
 
 - 需要标准 UUID 格式（如数据库主键约定）时用它；`secure context` 之外的 `crypto.randomUUID` 直接不可用，本函数补上缺口
+- `{ secure: true }`：ID 参与安全决策（防伪造令牌、会话标识）时开启，环境缺 crypto 直接抛错而非产出可预测 ID
