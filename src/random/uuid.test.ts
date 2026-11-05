@@ -48,6 +48,25 @@ describe("uuid（UUID v4 全环境生成）", () => {
     expect(id).toHaveLength(36);
   });
 
+  it("secure: true 且 crypto 完整时正常生成（不影响前两级）", () => {
+    expect(uuid({ secure: true })).toMatch(UUID_V4_RE);
+  });
+
+  it("secure: true 且仅 getRandomValues 时走手拼路径", () => {
+    vi.stubGlobal("crypto", {
+      getRandomValues: (arr: Uint8Array) => {
+        for (let i = 0; i < arr.length; i++) arr[i] = Math.floor(Math.random() * 256);
+        return arr;
+      },
+    });
+    expect(uuid({ secure: true })).toMatch(UUID_V4_RE);
+  });
+
+  it("secure: true 且无 crypto 时抛错（拒绝低熵兜底）", () => {
+    vi.stubGlobal("crypto", undefined);
+    expect(() => uuid({ secure: true })).toThrow(/secure: true/);
+  });
+
   it("多次调用互不相同", () => {
     const ids = new Set(Array.from({ length: 500 }, () => uuid()));
     expect(ids.size).toBe(500);
