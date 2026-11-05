@@ -16,3 +16,4 @@ export * from "./loader/index.js";
 export * from "./css/index.js";
 export * from "./permission/index.js";
 export * from "./fetch/index.js";
+export * from "./random/index.js";
