@@ -1,8 +1,9 @@
 /**
- * 默认字母表：64 个 URL-safe 字符（与 nanoid 同款），
+ * 默认字母表：base64url 标准 64 个字符（RFC 4648 §5），全部 URL-safe。
  * 长度恰为 2^6，可用 6-bit 掩码无偏采样，无需拒绝重试。
  */
-const DEFAULT_ALPHABET = "useandom-26T198340PX75pxJACKVERYMINDBUSHWOLFGQZbfghjklqvwyzrict";
+export const DEFAULT_ALPHABET =
+  "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
 
 /**
  * 生成随机唯一 ID。
@@ -52,12 +53,12 @@ export function randomId(size = 21, alphabet: string = DEFAULT_ALPHABET): string
 
   if (size === 0) return "";
 
-  // 快路径：默认字母表恰 64 字符，6-bit 掩码完美无偏，无需拒绝采样
-  if (alphabet === DEFAULT_ALPHABET) {
+  // 快路径：字母表恰 64 字符时，6-bit 掩码完美无偏，无需拒绝采样
+  if (alphabet.length === 64) {
     const bytes = getRandomValues(new Uint8Array(size));
     let id = "";
     for (let i = 0; i < size; i++) {
-      id += DEFAULT_ALPHABET[bytes[i]! & 63];
+      id += alphabet[bytes[i]! & 63];
     }
     return id;
   }

@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { randomId } from "./randomId.js";
-
-const DEFAULT_ALPHABET =
-  "useandom-26T198340PX75pxJACKVERYMINDBUSHWOLFGQZbfghjklqvwyzrict";
+import { DEFAULT_ALPHABET, randomId } from "./randomId.js";
 
 describe("randomId（随机唯一 ID）", () => {
+  it("默认字母表恰为 64 个字符（无偏采样的前提）", () => {
+    expect(DEFAULT_ALPHABET).toHaveLength(64);
+    expect(new Set(DEFAULT_ALPHABET).size).toBe(64); // 无重复字符
+  });
+
   it("默认 21 字符，且全部落在默认字母表内", () => {
     const id = randomId();
     expect(id).toHaveLength(21);
